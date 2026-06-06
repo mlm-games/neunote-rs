@@ -1,29 +1,58 @@
 use std::path::Path;
 use std::time::Instant;
 
+use clap::Parser;
+
 use neuralnote_core::audio::resampler::Resampler;
-use neuralnote_core::midi::writer::write_midi_file;
+use neuralnote_core::midi::writer::write_midi_file_from_tracks;
 use neuralnote_core::ml::pipeline::BasicPitch;
 use neuralnote_core::ml::weights::load_cnn_weights;
+use neuralnote_core::{PitchRangeAssigner, TrackAssigner};
+
+#[derive(Parser)]
+#[command(name = "neuralnote", about = "Transcribes polyphonic audio to MIDI using the Basic Pitch model")]
+struct Cli {
+    /// Input WAV file
+    input: String,
+
+    /// Output MIDI file (default: <input>.mid)
+    output: Option<String>,
+
+    /// Note sensitivity 0.0–1.0 (default: 0.5). Higher = more notes detected.
+    #[arg(long, default_value = "0.5")]
+    note_sensitivity: f32,
+
+    /// Split sensitivity 0.0–1.0 (default: 0.7). Higher = fewer note splits.
+    #[arg(long, default_value = "0.7")]
+    split_sensitivity: f32,
+
+    /// Minimum note duration in milliseconds (default: 128)
+    #[arg(long, default_value = "128")]
+    min_note_duration: f32,
+}
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: neuralnote <input.wav> [output.mid]");
-        eprintln!();
-        eprintln!("Transcribes polyphonic audio to MIDI using the Basic Pitch model.");
-        eprintln!("  input.wav   - Audio file (mono or stereo, any sample rate)");
-        eprintln!("  output.mid  - Optional MIDI output path (default: input name)");
+    let cli = Cli::parse();
+
+    if !(0.0..=1.0).contains(&cli.note_sensitivity) {
+        eprintln!("Error: --note-sensitivity must be between 0.0 and 1.0");
+        std::process::exit(1);
+    }
+    if !(0.0..=1.0).contains(&cli.split_sensitivity) {
+        eprintln!("Error: --split-sensitivity must be between 0.0 and 1.0");
+        std::process::exit(1);
+    }
+    if cli.min_note_duration < 0.0 {
+        eprintln!("Error: --min-note-duration must be non-negative");
         std::process::exit(1);
     }
 
-    let input_path = &args[1];
-    let output_path = args.get(2).cloned().unwrap_or_else(|| {
-        let stem = Path::new(input_path).file_stem().unwrap().to_string_lossy().to_string();
+    let output_path = cli.output.unwrap_or_else(|| {
+        let stem = Path::new(&cli.input).file_stem().unwrap().to_string_lossy().to_string();
         format!("{}.mid", stem)
     });
 
-    // Determine model directory (look next to the binary, then in typical locations)
+    // Determine model directory
     let model_dir = find_model_dir().unwrap_or_else(|| {
         eprintln!("Error: Cannot find CNN model JSON files.");
         eprintln!("Place cnn_contour_model.json, cnn_note_model.json,");
@@ -42,12 +71,17 @@ fn main() {
     });
     eprintln!("done ({:.2}s)", start.elapsed().as_secs_f64());
 
-    // Create pipeline
+    // Create pipeline and set parameters
     let mut bp = BasicPitch::new(&w, &model_dir);
+    bp.set_parameters(
+        cli.note_sensitivity,
+        cli.split_sensitivity,
+        cli.min_note_duration,
+    );
 
     // Read WAV file
-    eprint!("Reading WAV: {}... ", input_path);
-    let (samples, sample_rate) = read_wav(input_path).unwrap_or_else(|e| {
+    eprint!("Reading WAV: {}... ", cli.input);
+    let (samples, sample_rate) = read_wav(&cli.input).unwrap_or_else(|e| {
         eprintln!("Failed: {}", e);
         std::process::exit(1);
     });
@@ -77,27 +111,34 @@ fn main() {
     );
 
     if events.is_empty() {
-        eprintln!("Warning: No notes detected. Try adjusting parameters.");
+        eprintln!("Warning: No notes detected. Try adjusting --note-sensitivity.");
         return;
     }
 
+    // Assign notes to tracks by pitch range
+    let assigner = PitchRangeAssigner::default();
+    let tracks = assigner.assign_tracks(events);
+
     // Print note summary
-    let total_duration = events
+    let total_duration = tracks
         .iter()
+        .flat_map(|t| t.events.iter())
         .map(|e| e.end_time)
         .fold(0.0, f64::max);
     eprintln!("\nTranscription Summary:");
     eprintln!("  Duration: {:.1}s", total_duration);
-    eprintln!("  Notes: {}", events.len());
-    let note_range_min = events.iter().map(|e| e.pitch).min().unwrap();
-    let note_range_max = events.iter().map(|e| e.pitch).max().unwrap();
-    eprintln!(
-        "  Range: {} ({}) - {} ({})",
-        note_range_min,
-        neuralnote_core::midi::events::midi_note_to_str(note_range_min),
-        note_range_max,
-        neuralnote_core::midi::events::midi_note_to_str(note_range_max),
-    );
+    eprintln!("  Notes: {}", tracks.iter().map(|t| t.events.len()).sum::<usize>());
+    for track in &tracks {
+        let min_pitch = track.events.iter().map(|e| e.pitch).min().unwrap_or(0);
+        let max_pitch = track.events.iter().map(|e| e.pitch).max().unwrap_or(0);
+        eprintln!(
+            "  {}: {} notes ({}–{})",
+            track.name,
+            track.events.len(),
+            neuralnote_core::midi::events::midi_note_to_str(min_pitch),
+            neuralnote_core::midi::events::midi_note_to_str(max_pitch),
+        );
+    }
 
     // Write MIDI
     eprint!("Writing MIDI: {}... ", output_path);
@@ -106,7 +147,7 @@ fn main() {
         std::process::exit(1);
     });
     let mut writer = std::io::BufWriter::new(file);
-    write_midi_file(&mut writer, events, 120.0).unwrap_or_else(|e| {
+    write_midi_file_from_tracks(&mut writer, &tracks, 120.0).unwrap_or_else(|e| {
         eprintln!("Failed to write MIDI: {}", e);
         std::process::exit(1);
     });
@@ -116,7 +157,6 @@ fn main() {
 }
 
 fn find_model_dir() -> Option<std::path::PathBuf> {
-    // Check several locations
     let candidates = [
         Path::new("./models").to_path_buf(),
         Path::new("/usr/share/neuralnote/models").to_path_buf(),
@@ -127,7 +167,6 @@ fn find_model_dir() -> Option<std::path::PathBuf> {
             return Some(dir.clone());
         }
     }
-    // Check next to the binary
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.parent().unwrap().join("models");
         if sibling.join("cnn_contour_model.json").exists() {
@@ -152,7 +191,6 @@ fn read_wav(path: &str) -> Result<(Vec<f32>, f64), String> {
     let sample_rate = spec.sample_rate as f64;
     let channels = spec.channels as usize;
 
-    // Read all samples and convert to f32, mix down to mono
     let total_samples = reader.len() as usize / (spec.bits_per_sample as usize / 8 * channels);
     let mut mono = Vec::with_capacity(total_samples / channels);
     let mut frame_sum = 0.0f64;
@@ -175,7 +213,7 @@ fn read_wav(path: &str) -> Result<(Vec<f32>, f64), String> {
             24 => {
                 for sample in reader.samples::<i32>() {
                     let s = sample.map_err(|e| format!("WAV read error: {}", e))?;
-                    frame_sum += s as f64 / 8388607.0; // i24 max
+                    frame_sum += s as f64 / 8388607.0;
                     frame_count += 1;
                     if frame_count >= channels {
                         mono.push((frame_sum / channels as f64) as f32);
@@ -211,7 +249,6 @@ fn read_wav(path: &str) -> Result<(Vec<f32>, f64), String> {
         }
     }
 
-    // Normalize to [-1, 1]
     let max_val = mono.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
     if max_val > 1.0 {
         for s in mono.iter_mut() {
