@@ -57,16 +57,28 @@ impl TrackAssigner for PitchRangeAssigner {
 
         let mut tracks = Vec::new();
         if !bass.is_empty() {
-            tracks.push(Track { name: self.bass_name.clone(), events: bass });
+            tracks.push(Track {
+                name: self.bass_name.clone(),
+                events: bass,
+            });
         }
         if !keys.is_empty() {
-            tracks.push(Track { name: self.keys_name.clone(), events: keys });
+            tracks.push(Track {
+                name: self.keys_name.clone(),
+                events: keys,
+            });
         }
         if !lead.is_empty() {
-            tracks.push(Track { name: self.lead_name.clone(), events: lead });
+            tracks.push(Track {
+                name: self.lead_name.clone(),
+                events: lead,
+            });
         }
         if tracks.is_empty() && !events.is_empty() {
-            tracks.push(Track { name: "Piano".into(), events: events.to_vec() });
+            tracks.push(Track {
+                name: "Piano".into(),
+                events: events.to_vec(),
+            });
         }
         tracks
     }

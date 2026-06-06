@@ -36,7 +36,9 @@ pub fn hz_to_midi(hz: f32) -> u8 {
 
 /// Convert MIDI note number to string (e.g. C4, A#3)
 pub fn midi_note_to_str(note: u8) -> String {
-    const SHARP_NAMES: &[&str] = &["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const SHARP_NAMES: &[&str] = &[
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
     let octave = (note / 12).saturating_sub(1);
     let idx = (note % 12) as usize;
     format!("{}{}", SHARP_NAMES[idx], octave)

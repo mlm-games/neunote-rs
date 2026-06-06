@@ -29,7 +29,11 @@ fn parse_layer(weights: &serde_json::Value) -> (Vec<f32>, Vec<f32>) {
 
     let flat_bias: Vec<f32> = bias_tensor
         .as_array()
-        .map(|arr| arr.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect())
+        .map(|arr| {
+            arr.iter()
+                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                .collect()
+        })
         .unwrap_or_default();
 
     (flat_weights, flat_bias)
@@ -55,8 +59,8 @@ pub fn load_cnn_weights(model_dir: &Path) -> Result<CnnWeights, String> {
         let path = model_dir.join(format!("cnn_{}_model.json", name));
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+        let json: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
 
         let layers = json["layers"]
             .as_array()

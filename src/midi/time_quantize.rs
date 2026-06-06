@@ -178,13 +178,11 @@ mod tests {
             ..Default::default()
         };
         let info = TimeQuantizeInfo::default();
-        let events = vec![
-            NoteEvent {
-                start_time: 0.1,
-                end_time: 1.0,
-                ..Default::default()
-            },
-        ];
+        let events = vec![NoteEvent {
+            start_time: 0.1,
+            end_time: 1.0,
+            ..Default::default()
+        }];
         let out = opts.quantize(&events, &info);
         assert_eq!(out[0].start_time, 0.1);
     }
@@ -197,13 +195,11 @@ mod tests {
             quantize_force: 1.0,
         };
         let info = TimeQuantizeInfo::default();
-        let events = vec![
-            NoteEvent {
-                start_time: 0.51,
-                end_time: 1.0,
-                ..Default::default()
-            },
-        ];
+        let events = vec![NoteEvent {
+            start_time: 0.51,
+            end_time: 1.0,
+            ..Default::default()
+        }];
         // At 120 BPM, quarter note = 0.5s. 0.51s should snap to 0.5s
         let out = opts.quantize(&events, &info);
         assert!((out[0].start_time - 0.5).abs() < 1e-6);

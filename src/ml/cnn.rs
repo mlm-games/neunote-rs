@@ -169,8 +169,8 @@ impl Conv2D {
             let mut accum = vec![0.0; self.out_size];
 
             for t in 0..self.kernel_size_time {
-                let src_f = (f as i32 + t as i32 - half_t as i32)
-                    .clamp(0, num_frames as i32 - 1) as usize;
+                let src_f =
+                    (f as i32 + t as i32 - half_t as i32).clamp(0, num_frames as i32 - 1) as usize;
                 let frame_in = &input[src_f * self.in_size..][..self.in_size];
                 let conv_out = self.layers[t].forward(frame_in);
                 for i in 0..self.out_size {
@@ -188,11 +188,11 @@ impl Conv2D {
 // ============================================================================
 
 pub struct BasicPitchCNN {
-    contour_conv1: Conv2D,   // 8→8, 264feat, kernel_t=3, kernel_f=39, stride=1
-    contour_conv2: Conv2D,   // 8→1, 264feat, kernel_t=5, kernel_f=5, stride=1
-    note_conv1: Conv2D,      // 1→32, 264feat, kernel_t=7, kernel_f=7, stride=3
-    note_conv2: Conv2D,      // 32→1, 88feat, kernel_t=7, kernel_f=3, stride=1
-    onset_input_conv: Conv2D, // 8→32, 264feat, kernel_t=5, kernel_f=5, stride=3
+    contour_conv1: Conv2D,     // 8→8, 264feat, kernel_t=3, kernel_f=39, stride=1
+    contour_conv2: Conv2D,     // 8→1, 264feat, kernel_t=5, kernel_f=5, stride=1
+    note_conv1: Conv2D,        // 1→32, 264feat, kernel_t=7, kernel_f=7, stride=3
+    note_conv2: Conv2D,        // 32→1, 88feat, kernel_t=7, kernel_f=3, stride=1
+    onset_input_conv: Conv2D,  // 8→32, 264feat, kernel_t=5, kernel_f=5, stride=3
     onset_output_conv: Conv2D, // 33→1, 88feat, kernel_t=3, kernel_f=3, stride=1
 }
 
@@ -224,7 +224,8 @@ impl BasicPitchCNN {
 
         // === Contour model: 2112 → 264 ===
         let mut c1 = vec![0.0; num_frames * CONV1D_CH * NUM_FREQ_IN];
-        self.contour_conv1.forward_batch(features, &mut c1, num_frames);
+        self.contour_conv1
+            .forward_batch(features, &mut c1, num_frames);
         relu_inplace(&mut c1);
 
         let mut c2 = vec![0.0; num_frames * NUM_FREQ_IN];
@@ -255,7 +256,8 @@ impl BasicPitchCNN {
 
         // === Onset model ===
         let mut o1 = vec![0.0; num_frames * NOTE_CH * NUM_FREQ_OUT];
-        self.onset_input_conv.forward_batch(features, &mut o1, num_frames);
+        self.onset_input_conv
+            .forward_batch(features, &mut o1, num_frames);
         relu_inplace(&mut o1);
 
         // Concat note + onset_input per position: 33 channels × 88 features

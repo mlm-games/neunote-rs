@@ -160,7 +160,14 @@ pub fn posteriorgrams_to_notes(
             let mut fi = frame_idx + 1;
             let mut fk = 0;
             while fi < last_frame && fk < params.energy_threshold {
-                fk = inhibit(&mut remaining, n_notes, fi, note_idx, params.frame_threshold, fk);
+                fk = inhibit(
+                    &mut remaining,
+                    n_notes,
+                    fi,
+                    note_idx,
+                    params.frame_threshold,
+                    fk,
+                );
                 fi += 1;
             }
             let i_end = fi - 1 - fk;
@@ -169,7 +176,14 @@ pub fn posteriorgrams_to_notes(
             let mut bi = frame_idx as isize - 1;
             let mut bk = 0;
             while bi > 0 && bk < params.energy_threshold as isize {
-                bk = inhibit(&mut remaining, n_notes, bi as usize, note_idx, params.frame_threshold, bk as usize) as isize;
+                bk = inhibit(
+                    &mut remaining,
+                    n_notes,
+                    bi as usize,
+                    note_idx,
+                    params.frame_threshold,
+                    bk as usize,
+                ) as isize;
                 bi -= 1;
             }
             let i_start = (bi + 1 + bk) as usize;
@@ -394,13 +408,8 @@ mod tests {
             ..Default::default()
         };
 
-        let events = posteriorgrams_to_notes(
-            &notes_pg,
-            &onsets_pg,
-            &contours_pg,
-            num_frames,
-            &params,
-        );
+        let events =
+            posteriorgrams_to_notes(&notes_pg, &onsets_pg, &contours_pg, num_frames, &params);
 
         assert!(!events.is_empty(), "Should have at least one event");
         let has_c4 = events.iter().any(|e| e.pitch == 60);

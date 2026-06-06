@@ -10,7 +10,10 @@ use neuralnote_core::ml::weights::load_cnn_weights;
 use neuralnote_core::{PitchRangeAssigner, TrackAssigner};
 
 #[derive(Parser)]
-#[command(name = "neuralnote", about = "Transcribes polyphonic audio to MIDI using the Basic Pitch model")]
+#[command(
+    name = "neuralnote",
+    about = "Transcribes polyphonic audio to MIDI using the Basic Pitch model"
+)]
 struct Cli {
     /// Input WAV file
     input: String,
@@ -48,7 +51,11 @@ fn main() {
     }
 
     let output_path = cli.output.unwrap_or_else(|| {
-        let stem = Path::new(&cli.input).file_stem().unwrap().to_string_lossy().to_string();
+        let stem = Path::new(&cli.input)
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         format!("{}.mid", stem)
     });
 
@@ -104,11 +111,7 @@ fn main() {
     bp.transcribe(&audio_22050);
     let elapsed = start.elapsed().as_secs_f64();
     let events = bp.note_events();
-    eprintln!(
-        "done ({:.2}s) — {} notes found",
-        elapsed,
-        events.len()
-    );
+    eprintln!("done ({:.2}s) — {} notes found", elapsed, events.len());
 
     if events.is_empty() {
         eprintln!("Warning: No notes detected. Try adjusting --note-sensitivity.");
@@ -127,7 +130,10 @@ fn main() {
         .fold(0.0, f64::max);
     eprintln!("\nTranscription Summary:");
     eprintln!("  Duration: {:.1}s", total_duration);
-    eprintln!("  Notes: {}", tracks.iter().map(|t| t.events.len()).sum::<usize>());
+    eprintln!(
+        "  Notes: {}",
+        tracks.iter().map(|t| t.events.len()).sum::<usize>()
+    );
     for track in &tracks {
         let min_pitch = track.events.iter().map(|e| e.pitch).min().unwrap_or(0);
         let max_pitch = track.events.iter().map(|e| e.pitch).max().unwrap_or(0);
@@ -185,7 +191,10 @@ fn read_wav(path: &str) -> Result<(Vec<f32>, f64), String> {
     if spec.sample_format != hound::SampleFormat::Int
         && spec.sample_format != hound::SampleFormat::Float
     {
-        return Err(format!("Unsupported sample format: {:?}", spec.sample_format));
+        return Err(format!(
+            "Unsupported sample format: {:?}",
+            spec.sample_format
+        ));
     }
 
     let sample_rate = spec.sample_rate as f64;

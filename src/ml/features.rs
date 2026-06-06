@@ -35,10 +35,8 @@ impl FeatureExtractor {
 
         let runnable = infered.into_runnable().unwrap();
 
-        let input_array = tract_ndarray::Array3::from_shape_fn(
-            (1, num_samples, 1),
-            |(_, s, _)| audio_22050[s],
-        );
+        let input_array =
+            tract_ndarray::Array3::from_shape_fn((1, num_samples, 1), |(_, s, _)| audio_22050[s]);
         let input_tensor = Tensor::from(input_array);
 
         let result = runnable.run(tvec!(input_tensor.into())).unwrap();

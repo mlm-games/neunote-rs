@@ -21,4 +21,5 @@ pub const ANNOTATIONS_FPS: usize = AUDIO_SAMPLE_RATE as usize / FFT_HOP;
 /// Number of frames in the time-frequency representations
 pub const ANNOT_N_FRAMES: usize = ANNOTATIONS_FPS * AUDIO_WINDOW_LENGTH as usize;
 /// Number of samples in the (clipped) audio input
-pub const AUDIO_N_SAMPLES: usize = AUDIO_SAMPLE_RATE as usize * AUDIO_WINDOW_LENGTH as usize - FFT_HOP;
+pub const AUDIO_N_SAMPLES: usize =
+    AUDIO_SAMPLE_RATE as usize * AUDIO_WINDOW_LENGTH as usize - FFT_HOP;
