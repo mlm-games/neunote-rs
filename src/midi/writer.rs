@@ -26,26 +26,22 @@ pub fn write_midi_file_from_tracks<W: Write>(
     let ticks_per_qn: u16 = 480;
     let microseconds_per_qn = (60.0 / bpm * 1_000_000.0) as u32;
 
-    // --- Header chunk ---
+    // Header chunk
     // format 1, tracks = 1 tempo + N note tracks
     let num_tracks = 1u16 + tracks.len() as u16;
-    write_chunk(
-        writer,
-        b"MThd",
-        &{
-            let mut h = Vec::with_capacity(6);
-            h.extend_from_slice(&1u16.to_be_bytes()); // format 1
-            h.extend_from_slice(&num_tracks.to_be_bytes());
-            h.extend_from_slice(&ticks_per_qn.to_be_bytes());
-            h
-        },
-    )?;
+    write_chunk(writer, b"MThd", &{
+        let mut h = Vec::with_capacity(6);
+        h.extend_from_slice(&1u16.to_be_bytes()); // format 1
+        h.extend_from_slice(&num_tracks.to_be_bytes());
+        h.extend_from_slice(&ticks_per_qn.to_be_bytes());
+        h
+    })?;
 
-    // --- Track 0: Tempo map ---
+    // Track 0: Tempo map
     let tempo_track = build_tempo_track(microseconds_per_qn, ticks_per_qn);
     write_chunk(writer, b"MTrk", &tempo_track)?;
 
-    // --- Track 1..N: Note tracks ---
+    // Track 1..N: Note tracks
     let ticks_per_sec = ticks_per_qn as f64 * bpm / 60.0;
     for track in tracks {
         let note_track = build_note_track(track, ticks_per_sec);
@@ -63,31 +59,31 @@ fn write_chunk<W: Write>(writer: &mut W, id: &[u8; 4], data: &[u8]) -> std::io::
 
 fn build_tempo_track(microseconds_per_qn: u32, _ticks_per_qn: u16) -> Vec<u8> {
     let mut track = vec![
-        0,       // delta time
-        0xFF,    // meta event
-        0x51,    // set tempo
-        0x03,    // length
+        0,    // delta time
+        0xFF, // meta event
+        0x51, // set tempo
+        0x03, // length
     ];
     track.extend_from_slice(&microseconds_per_qn.to_be_bytes()[1..]); // 3 bytes
 
     // Time signature: 4/4
     track.extend_from_slice(&[
-        0,       // delta time
-        0xFF,    // meta
-        0x58,    // time signature
-        0x04,    // length
-        4,       // numerator
-        4,       // denominator (2^n)
-        24,      // clocks per click
-        8,       // 32nd notes per quarter
+        0,    // delta time
+        0xFF, // meta
+        0x58, // time signature
+        0x04, // length
+        4,    // numerator
+        4,    // denominator (2^n)
+        24,   // clocks per click
+        8,    // 32nd notes per quarter
     ]);
 
     // End of track
     track.extend_from_slice(&[
-        0,       // delta
-        0xFF,    // meta
-        0x2F,    // end of track
-        0x00,    // length
+        0,    // delta
+        0xFF, // meta
+        0x2F, // end of track
+        0x00, // length
     ]);
 
     track
@@ -144,11 +140,7 @@ fn build_note_track(track: &Track, ticks_per_sec: f64) -> Vec<u8> {
         });
     }
 
-    midi_events.sort_by(|a, b| {
-        a.tick
-            .cmp(&b.tick)
-            .then_with(|| a.is_on.cmp(&b.is_on))
-    });
+    midi_events.sort_by(|a, b| a.tick.cmp(&b.tick).then_with(|| a.is_on.cmp(&b.is_on)));
 
     let mut current_tick: u64 = 0;
     for ev in &midi_events {
@@ -254,7 +246,10 @@ mod tests {
         let assigner = PitchRangeAssigner::default();
         write_midi_file(&mut buf, &events, 120.0, &assigner).unwrap();
         // MIDI 60 → Keys, MIDI 36 → Bass → 2 tracks
-        let track_name_count = buf.windows(2).filter(|w| w[0] == 0xFF && w[1] == 0x03).count();
+        let track_name_count = buf
+            .windows(2)
+            .filter(|w| w[0] == 0xFF && w[1] == 0x03)
+            .count();
         assert_eq!(track_name_count, 2, "Should have 2 track name meta events");
     }
 }
