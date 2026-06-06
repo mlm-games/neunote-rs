@@ -3,15 +3,15 @@ use std::time::Instant;
 
 use clap::Parser;
 
-use neuralnote_core::audio::resampler::Resampler;
-use neuralnote_core::midi::writer::write_midi_file_from_tracks;
-use neuralnote_core::ml::pipeline::BasicPitch;
-use neuralnote_core::ml::weights::load_cnn_weights;
-use neuralnote_core::{PitchRangeAssigner, TrackAssigner};
+use neunote_core::audio::resampler::Resampler;
+use neunote_core::midi::writer::write_midi_file_from_tracks;
+use neunote_core::ml::pipeline::BasicPitch;
+use neunote_core::ml::weights::load_cnn_weights;
+use neunote_core::{PitchRangeAssigner, TrackAssigner};
 
 #[derive(Parser)]
 #[command(
-    name = "neuralnote",
+    name = "neunote",
     about = "Transcribes polyphonic audio to MIDI using the Basic Pitch model"
 )]
 struct Cli {
@@ -64,7 +64,7 @@ fn main() {
         eprintln!("Error: Cannot find CNN model JSON files.");
         eprintln!("Place cnn_contour_model.json, cnn_note_model.json,");
         eprintln!("       cnn_onset_1_model.json, cnn_onset_2_model.json");
-        eprintln!("in ./models/ or /usr/share/neuralnote/models/ or next to the binary.");
+        eprintln!("in ./models/ or /usr/share/neunote/models/ or next to the binary.");
         std::process::exit(1);
     });
     eprintln!("Using models from: {}", model_dir.display());
@@ -141,8 +141,8 @@ fn main() {
             "  {}: {} notes ({}–{})",
             track.name,
             track.events.len(),
-            neuralnote_core::midi::events::midi_note_to_str(min_pitch),
-            neuralnote_core::midi::events::midi_note_to_str(max_pitch),
+            neunote_core::midi::events::midi_note_to_str(min_pitch),
+            neunote_core::midi::events::midi_note_to_str(max_pitch),
         );
     }
 
@@ -165,8 +165,8 @@ fn main() {
 fn find_model_dir() -> Option<std::path::PathBuf> {
     let candidates = [
         Path::new("./models").to_path_buf(),
-        Path::new("/usr/share/neuralnote/models").to_path_buf(),
-        Path::new("/usr/local/share/neuralnote/models").to_path_buf(),
+        Path::new("/usr/share/neunote/models").to_path_buf(),
+        Path::new("/usr/local/share/neunote/models").to_path_buf(),
     ];
     for dir in &candidates {
         if dir.join("cnn_contour_model.json").exists() {
