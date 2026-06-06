@@ -38,7 +38,7 @@ impl Conv1DLayer {
         let in_ch = weights[0].len();
         let kernel_size = weights[0][0].len();
         let out_features = if padding_same {
-            (in_features + stride - 1) / stride
+            in_features.div_ceil(stride)
         } else {
             (in_features - kernel_size) / stride + 1
         };
@@ -110,7 +110,7 @@ impl Conv2D {
     ) -> Self {
         let padding_same = !valid_pad;
         let num_features_out = if padding_same {
-            (num_features_in + stride - 1) / stride
+            num_features_in.div_ceil(stride)
         } else {
             (num_features_in - kernel_size_feature) / stride + 1
         };

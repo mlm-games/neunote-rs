@@ -29,7 +29,7 @@ impl FeatureExtractor {
             .unwrap()
             .with_input_fact(
                 0,
-                InferenceFact::dt_shape(f32::datum_type(), &[1, num_samples, 1]),
+                InferenceFact::dt_shape(f32::datum_type(), [1, num_samples, 1]),
             )
             .unwrap();
 
