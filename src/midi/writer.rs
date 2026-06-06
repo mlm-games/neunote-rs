@@ -84,36 +84,59 @@ fn build_note_track(events: &[NoteEvent], ticks_per_qn: u16, bpm: f64) -> Vec<u8
     track.push(0xC0); // program change
     track.push(0x00); // piano
 
-    let mut current_tick: u64 = 0;
+    // Build a sorted list of (tick, type, pitch, velocity) events
+    // type=0 for note-on, type=1 for note-off
+    struct MidiEvent {
+        tick: u64,
+        is_on: bool,
+        pitch: u8,
+        velocity: u8,
+    }
 
+    let mut midi_events: Vec<MidiEvent> = Vec::with_capacity(events.len() * 2);
     for event in &sorted {
         let start_tick = (event.start_time * ticks_per_sec) as u64;
         let end_tick = (event.end_time * ticks_per_sec) as u64;
 
-        if start_tick < current_tick {
-            // skip overlapping note-ons that would be in the past
+        if end_tick <= start_tick {
             continue;
         }
 
-        // Note on
-        let delta_on = start_tick - current_tick;
-        write_vlq(&mut track, delta_on as u32);
-        track.push(0x90); // note on, channel 0
-        track.push(event.pitch);
-        track.push((event.amplitude * 127.0) as u8);
+        midi_events.push(MidiEvent {
+            tick: start_tick,
+            is_on: true,
+            pitch: event.pitch,
+            velocity: (event.amplitude * 127.0).min(127.0) as u8,
+        });
+        midi_events.push(MidiEvent {
+            tick: end_tick,
+            is_on: false,
+            pitch: event.pitch,
+            velocity: 64,
+        });
+    }
 
-        // Note off (no delta between note-on/off pair in sequence)
-        let delta_off = if end_tick > start_tick {
-            end_tick - start_tick
+    // Sort by tick, then note-off before note-on for same tick
+    midi_events.sort_by(|a, b| {
+        a.tick
+            .cmp(&b.tick)
+            .then_with(|| a.is_on.cmp(&b.is_on))
+    });
+
+    let mut current_tick: u64 = 0;
+    for ev in &midi_events {
+        let delta = ev.tick - current_tick;
+        write_vlq(&mut track, delta as u32);
+        if ev.is_on {
+            track.push(0x90);
+            track.push(ev.pitch);
+            track.push(ev.velocity);
         } else {
-            1
-        };
-        write_vlq(&mut track, delta_off as u32);
-        track.push(0x80); // note off, channel 0
-        track.push(event.pitch);
-        track.push(0x40);
-
-        current_tick = start_tick + delta_off;
+            track.push(0x80);
+            track.push(ev.pitch);
+            track.push(64);
+        }
+        current_tick = ev.tick;
     }
 
     // End of track
@@ -125,24 +148,24 @@ fn build_note_track(events: &[NoteEvent], ticks_per_qn: u16, bpm: f64) -> Vec<u8
     track
 }
 
-/// Write a variable-length quantity (VLQ) value
+/// Write a variable-length quantity (VLQ) value (MIDI standard)
 fn write_vlq(track: &mut Vec<u8>, mut value: u32) {
-    if value == 0 {
-        track.push(0);
+    if value < 0x80 {
+        track.push(value as u8);
         return;
     }
-    let mut bytes = [0u8; 4];
+    let mut buf = [0u8; 5];
     let mut i = 0;
     while value > 0 {
-        bytes[i] = (value & 0x7F) as u8;
+        buf[i] = (value & 0x7F) as u8;
         value >>= 7;
         i += 1;
     }
-    for b in bytes[..i].iter().rev() {
-        if b != &bytes[i - 1] {
-            track.push(b | 0x80);
+    for j in (0..i).rev() {
+        if j > 0 {
+            track.push(buf[j] | 0x80);
         } else {
-            track.push(*b);
+            track.push(buf[j]);
         }
     }
 }
@@ -152,18 +175,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_write_simple_midi() {
+    fn test_write_polyphonic_midi() {
+        // Two overlapping notes (polyphony)
         let events = vec![
             NoteEvent {
                 start_time: 0.0,
-                end_time: 1.0,
+                end_time: 2.0,
                 pitch: 60,
                 amplitude: 0.8,
                 ..Default::default()
             },
             NoteEvent {
-                start_time: 1.0,
-                end_time: 2.0,
+                start_time: 0.5,
+                end_time: 1.5,
                 pitch: 64,
                 amplitude: 0.8,
                 ..Default::default()
@@ -171,11 +195,10 @@ mod tests {
         ];
         let mut buf = Vec::new();
         write_midi_file(&mut buf, &events, 120.0).unwrap();
-        // Should have MThd header + 2 MTrk chunks
-        assert!(buf.len() > 22, "MIDI file too short");
-        assert_eq!(&buf[0..4], b"MThd");
-        // Check that second track starts with MTrk
-        let mtrk_start = buf.windows(4).position(|w| w == b"MTrk").unwrap();
-        assert!(mtrk_start > 0);
+        // Should contain two note-on events
+        let note_on_count = buf.iter().filter(|&&b| b == 0x90).count();
+        assert_eq!(note_on_count, 2, "Should have 2 note-on events");
+        let note_off_count = buf.iter().filter(|&&b| b == 0x80).count();
+        assert_eq!(note_off_count, 2, "Should have 2 note-off events");
     }
 }
