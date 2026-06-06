@@ -22,7 +22,7 @@ pub enum TimeDivision {
 impl TimeDivision {
     pub fn as_f64(self) -> f64 {
         match self {
-            TimeDivision::Whole => 1.0 / 1.0,
+            TimeDivision::Whole => 1.0,
             TimeDivision::Half => 1.0 / 2.0,
             TimeDivision::Third => 1.0 / 3.0,
             TimeDivision::Quarter => 1.0 / 4.0,

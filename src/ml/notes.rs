@@ -336,7 +336,7 @@ fn add_pitch_bends(
                     max_val = w;
                 }
             }
-            event.bends.push(best_bend - pb_shift as i32);
+            event.bends.push(best_bend - pb_shift);
         }
     }
 }

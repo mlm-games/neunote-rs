@@ -6,6 +6,12 @@ pub struct Resampler {
     lp_coeff: f32, // coefficient for lowpass at nyquist of target
 }
 
+impl Default for Resampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resampler {
     pub fn new() -> Self {
         Self {

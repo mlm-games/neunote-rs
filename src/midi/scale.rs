@@ -155,12 +155,10 @@ fn closest_in_key(midi_note: u8, key_vec: &[usize], adjust_up: bool) -> u8 {
         } else {
             midi_note - 1
         }
+    } else if midi_note > MIN_MIDI_NOTE {
+        midi_note - 1
     } else {
-        if midi_note > MIN_MIDI_NOTE {
-            midi_note - 1
-        } else {
-            midi_note + 1
-        }
+        midi_note + 1
     }
 }
 

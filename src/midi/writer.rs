@@ -40,30 +40,33 @@ fn write_chunk<W: Write>(writer: &mut W, id: &[u8; 4], data: &[u8]) -> std::io::
 }
 
 fn build_tempo_track(microseconds_per_qn: u32, _ticks_per_qn: u16) -> Vec<u8> {
-    let mut track = Vec::new();
-
-    // Set tempo
-    track.push(0); // delta time
-    track.push(0xFF); // meta event
-    track.push(0x51); // set tempo
-    track.push(0x03); // length
+    let mut track = vec![
+        0,       // delta time
+        0xFF,    // meta event
+        0x51,    // set tempo
+        0x03,    // length
+    ];
     track.extend_from_slice(&microseconds_per_qn.to_be_bytes()[1..]); // 3 bytes
 
     // Time signature: 4/4
-    track.push(0); // delta time
-    track.push(0xFF); // meta
-    track.push(0x58); // time signature
-    track.push(0x04); // length
-    track.push(4); // numerator
-    track.push(4); // denominator (2 = quarter note gets the beat)
-    track.push(24); // clocks per click
-    track.push(8); // 32nd notes per quarter
+    track.extend_from_slice(&[
+        0,       // delta time
+        0xFF,    // meta
+        0x58,    // time signature
+        0x04,    // length
+        4,       // numerator
+        4,       // denominator
+        24,      // clocks per click
+        8,       // 32nd notes per quarter
+    ]);
 
     // End of track
-    track.push(0); // delta
-    track.push(0xFF); // meta
-    track.push(0x2F); // end of track
-    track.push(0x00); // length
+    track.extend_from_slice(&[
+        0,       // delta
+        0xFF,    // meta
+        0x2F,    // end of track
+        0x00,    // length
+    ]);
 
     track
 }
