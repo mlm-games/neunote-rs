@@ -7,10 +7,7 @@ use crate::ml::constants::{MAX_MIDI_NOTE, MIN_MIDI_NOTE};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum RootNote {
-    A = 0,
-    ASharp,
-    B,
-    C,
+    C = 0,
     CSharp,
     D,
     DSharp,
@@ -19,11 +16,14 @@ pub enum RootNote {
     FSharp,
     G,
     GSharp,
+    A,
+    ASharp,
+    B,
 }
 
 impl RootNote {
     pub fn from_midi(midi: u8) -> Self {
-        match (midi + 3) % 12 {
+        match midi % 12 {
             0 => RootNote::C,
             1 => RootNote::CSharp,
             2 => RootNote::D,
@@ -41,7 +41,7 @@ impl RootNote {
     }
 
     fn to_note_idx(self) -> usize {
-        ((self as usize) + 12 - 3) % 12
+        self as usize
     }
 }
 
@@ -149,17 +149,26 @@ fn closest_in_key(midi_note: u8, key_vec: &[usize], adjust_up: bool) -> u8 {
     if is_in_key(midi_note, key_vec) {
         return midi_note;
     }
-    if adjust_up {
-        if midi_note < MAX_MIDI_NOTE - 1 {
-            midi_note + 1
+    for offset in 1u8..=12 {
+        let up = midi_note.saturating_add(offset);
+        let down = midi_note.saturating_sub(offset);
+        if adjust_up {
+            if up <= MAX_MIDI_NOTE && is_in_key(up, key_vec) {
+                return up;
+            }
+            if down >= MIN_MIDI_NOTE && is_in_key(down, key_vec) {
+                return down;
+            }
         } else {
-            midi_note - 1
+            if down >= MIN_MIDI_NOTE && is_in_key(down, key_vec) {
+                return down;
+            }
+            if up <= MAX_MIDI_NOTE && is_in_key(up, key_vec) {
+                return up;
+            }
         }
-    } else if midi_note > MIN_MIDI_NOTE {
-        midi_note - 1
-    } else {
-        midi_note + 1
     }
+    midi_note
 }
 
 /// Build the set of valid note indices (0-11) for a given root + scale

@@ -57,11 +57,10 @@ impl Conv1DLayer {
     /// 1D convolution along the feature axis with stride
     /// Input: [in_ch * in_features], Output: [out_ch * out_features]
     /// Layout: [channel * in_features + position] (RTNeural convention)
-    fn forward(&self, input: &[f32]) -> Vec<f32> {
+    fn forward(&self, input: &[f32], output: &mut [f32]) {
         let kw = self.kernel_size;
         let kw_half = kw / 2;
         let s = self.stride;
-        let mut output = vec![0.0; self.out_ch * self.out_features];
 
         for oc in 0..self.out_ch {
             for pos in 0..self.out_features {
@@ -78,7 +77,6 @@ impl Conv1DLayer {
                 output[oc * self.out_features + pos] = sum + self.bias[oc];
             }
         }
-        output
     }
 }
 
@@ -164,21 +162,21 @@ impl Conv2D {
     /// Batch forward: input [num_frames * in_size], output [num_frames * out_size]
     pub fn forward_batch(&self, input: &[f32], output: &mut [f32], num_frames: usize) {
         let half_t = self.kernel_size_time / 2;
+        let mut conv_out = vec![0.0; self.out_size];
         for f in 0..num_frames {
             let out_start = f * self.out_size;
-            let mut accum = vec![0.0; self.out_size];
+            let out_slice = &mut output[out_start..out_start + self.out_size];
+            out_slice.fill(0.0);
 
             for t in 0..self.kernel_size_time {
                 let src_f =
                     (f as i32 + t as i32 - half_t as i32).clamp(0, num_frames as i32 - 1) as usize;
                 let frame_in = &input[src_f * self.in_size..][..self.in_size];
-                let conv_out = self.layers[t].forward(frame_in);
+                self.layers[t].forward(frame_in, &mut conv_out);
                 for i in 0..self.out_size {
-                    accum[i] += conv_out[i];
+                    out_slice[i] += conv_out[i];
                 }
             }
-
-            output[out_start..out_start + self.out_size].copy_from_slice(&accum);
         }
     }
 }
@@ -232,11 +230,7 @@ impl BasicPitchCNN {
         self.contour_conv2.forward_batch(&c1, &mut c2, num_frames);
         sigmoid_inplace(&mut c2);
 
-        for f in 0..num_frames {
-            let src = f * NUM_FREQ_IN;
-            let dst = f * NUM_FREQ_IN;
-            out_contours[dst..dst + NUM_FREQ_IN].copy_from_slice(&c2[src..src + NUM_FREQ_IN]);
-        }
+        out_contours[..num_frames * NUM_FREQ_IN].copy_from_slice(&c2);
 
         // === Note model: 264 → 88 ===
         let note_in = out_contours;
@@ -248,11 +242,7 @@ impl BasicPitchCNN {
         self.note_conv2.forward_batch(&n1, &mut n2, num_frames);
         sigmoid_inplace(&mut n2);
 
-        for f in 0..num_frames {
-            let src = f * NUM_FREQ_OUT;
-            let dst = f * NUM_FREQ_OUT;
-            out_notes[dst..dst + NUM_FREQ_OUT].copy_from_slice(&n2[src..src + NUM_FREQ_OUT]);
-        }
+        out_notes[..num_frames * NUM_FREQ_OUT].copy_from_slice(&n2);
 
         // === Onset model ===
         let mut o1 = vec![0.0; num_frames * NOTE_CH * NUM_FREQ_OUT];
@@ -269,9 +259,7 @@ impl BasicPitchCNN {
             let out_frame = &mut concat[f * concat_input_size..(f + 1) * concat_input_size];
 
             // [channel][feature] layout: ch=0 is note, ch=1..32 are onset_input
-            for i in 0..NUM_FREQ_OUT {
-                out_frame[i] = note_frame[i];
-            }
+            out_frame[..NUM_FREQ_OUT].copy_from_slice(note_frame);
             for j in 0..NOTE_CH {
                 for i in 0..NUM_FREQ_OUT {
                     out_frame[(1 + j) * NUM_FREQ_OUT + i] = onset_frame[j * NUM_FREQ_OUT + i];

@@ -106,8 +106,6 @@ fn build_note_track(track: &Track, ticks_per_sec: f64) -> Vec<u8> {
     data.push(0x00); // piano
 
     let events = &track.events;
-    let mut sorted = events.to_vec();
-    sorted.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
 
     // Build sorted list of MIDI events
     struct MidiEvent {
@@ -118,7 +116,7 @@ fn build_note_track(track: &Track, ticks_per_sec: f64) -> Vec<u8> {
     }
 
     let mut midi_events: Vec<MidiEvent> = Vec::with_capacity(events.len() * 2);
-    for event in &sorted {
+    for event in events {
         let start_tick = (event.start_time * ticks_per_sec) as u64;
         let end_tick = (event.end_time * ticks_per_sec) as u64;
 
@@ -130,7 +128,7 @@ fn build_note_track(track: &Track, ticks_per_sec: f64) -> Vec<u8> {
             tick: start_tick,
             is_on: true,
             pitch: event.pitch,
-            velocity: (event.amplitude * 127.0).min(127.0) as u8,
+            velocity: (event.amplitude * 127.0).clamp(1.0, 127.0) as u8,
         });
         midi_events.push(MidiEvent {
             tick: end_tick,

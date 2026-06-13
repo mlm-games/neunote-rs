@@ -188,7 +188,7 @@ pub fn posteriorgrams_to_notes(
             }
             let i_start = (bi + 1 + bk) as usize;
 
-            if i_end - i_start <= params.min_note_length {
+            if i_end <= i_start || i_end - i_start <= params.min_note_length {
                 continue;
             }
 

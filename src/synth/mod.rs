@@ -4,6 +4,7 @@ pub struct SynthVoice {
     frequency: f64,
     sample_rate: f64,
     envelope: Envelope,
+    amplitude: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -55,7 +56,7 @@ impl Envelope {
         match self.phase {
             EnvPhase::Off => 0.0,
             EnvPhase::Attack => {
-                let dur = (self.attack * sample_rate) as usize;
+                let dur = ((self.attack * sample_rate) as usize).max(1);
                 self.level = (self.counter as f64 / dur as f64).min(1.0);
                 self.counter += 1;
                 if self.counter >= dur {
@@ -65,7 +66,7 @@ impl Envelope {
                 self.level
             }
             EnvPhase::Decay => {
-                let dur = (self.decay * sample_rate) as usize;
+                let dur = ((self.decay * sample_rate) as usize).max(1);
                 let t = (self.counter as f64 / dur as f64).min(1.0);
                 self.level = 1.0 - (1.0 - self.sustain as f64) * t;
                 self.counter += 1;
@@ -77,7 +78,7 @@ impl Envelope {
             }
             EnvPhase::Sustain => self.sustain as f64,
             EnvPhase::Release => {
-                let dur = (self.release * sample_rate) as usize;
+                let dur = ((self.release * sample_rate) as usize).max(1);
                 let t = (self.counter as f64 / dur as f64).min(1.0);
                 self.level = self.sustain as f64 * (1.0 - t);
                 self.counter += 1;
@@ -102,12 +103,14 @@ impl SynthVoice {
             frequency: 440.0,
             sample_rate,
             envelope: Envelope::new(0.01, 0.1, 0.7, 0.2),
+            amplitude: 1.0,
         }
     }
 
-    pub fn note_on(&mut self, midi_note: u8, _amplitude: f32) {
+    pub fn note_on(&mut self, midi_note: u8, amplitude: f32) {
         self.frequency = 440.0 * 2.0_f64.powf((midi_note as f64 - 69.0) / 12.0);
         self.envelope.note_on(self.sample_rate);
+        self.amplitude = amplitude;
     }
 
     pub fn note_off(&mut self) {
@@ -131,7 +134,7 @@ impl SynthVoice {
             self.phase -= 1.0;
         }
 
-        (sample * env) as f32
+        (sample * env * self.amplitude as f64) as f32
     }
 
     pub fn is_active(&self) -> bool {

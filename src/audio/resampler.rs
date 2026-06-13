@@ -29,9 +29,11 @@ impl Resampler {
 
     /// Resample audio from input_rate to 22050 Hz
     pub fn process(&mut self, input: &[f32], input_rate: f64, output_rate: f64) -> Vec<f32> {
-        if input_rate == output_rate {
+        if input.len() < 2 || input_rate == output_rate {
             return input.to_vec();
         }
+
+        self.prepare(input_rate, output_rate);
 
         let ratio = input_rate / output_rate;
         let output_len = (input.len() as f64 / ratio).ceil() as usize;
