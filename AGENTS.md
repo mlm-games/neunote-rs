@@ -99,6 +99,23 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+The inference, audio, tokenizer, MIDI and manifest code compiles for
+`wasm32-unknown-unknown`:
+
+```bash
+cargo check --target wasm32-unknown-unknown -p neunote-types -p neunote-tokenizer \
+  -p neunote-audio -p neunote-midi -p neunote-models -p neunote-cli --no-default-features --lib
+```
+
+Two things are native-only, deliberately. `neunote-models` keeps its
+filesystem cache and reqwest downloader behind `cfg(not(target_arch = "wasm32"))`;
+a wasm host obtains the weights itself and calls `verify_bytes`, which is the
+same length-then-digest check the file path performs. The `neunote` binary sits
+behind the `cli` feature, since a browser has no argv and already has its own
+way to read a file. Native dependencies are fine here: `ring` and `cc` come
+along with rustls inside `neunote-models`' download path, and on wasm that path
+is not compiled at all.
+
 Every crate has tests. The legacy Basic Pitch pipeline that used to live here
 was deleted rather than kept as a fallback, so there is no path that produces
 notes without MuScriptor.
