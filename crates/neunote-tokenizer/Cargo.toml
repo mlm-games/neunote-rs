@@ -1,0 +1,12 @@
+[package]
+name = "neunote-tokenizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

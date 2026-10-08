@@ -164,6 +164,7 @@ fn main() {
 
 fn find_model_dir() -> Option<std::path::PathBuf> {
     let candidates = [
+        Path::new("./crates/neunote-core/models").to_path_buf(),
         Path::new("./models").to_path_buf(),
         Path::new("/usr/share/neunote/models").to_path_buf(),
         Path::new("/usr/local/share/neunote/models").to_path_buf(),
