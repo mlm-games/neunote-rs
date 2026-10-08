@@ -1,0 +1,18 @@
+# NOTICE
+
+The source in this repository is licensed under the Mozilla Public License,
+version 2.0 — the full text is in `LICENSE`. That licence covers this project
+only. It does not extend to:
+
+- **The model weights.** MuScriptor's checkpoints are CC BY-NC 4.0,
+  non-commercial. None are committed here: `neunote models fetch` downloads
+  them at runtime and verifies each against the digest compiled into
+  `neunote-models`, and `neunote models accept-licence` records that the terms
+  were accepted. Running inference with them stays non-commercial.
+- **The reference implementation.** The engine was transcribed from
+  `muscriptor.cpp` (MIT), which is neither vendored, linked nor redistributed
+  here. Where this port and the reference disagree, the reference is right.
+- **Test data.** `testdata/` holds the reference project's own audio fixture and
+  token vectors (MIT) together with tensors dumped from the reference by
+  `tools/dump_refs.cpp`. They are inputs to the parity tests, not part of the
+  port.
