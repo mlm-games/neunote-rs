@@ -7,7 +7,6 @@
 //! the chunk loop, the cross-chunk state machine, instrument conditioning and
 //! note assembly are all real and tested now, and adding the engine becomes
 //! an implementation of one trait rather than a rewrite of this file.
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use neunote_tokenizer::{
@@ -249,9 +248,14 @@ pub fn forbidden_for(size: ModelSize, instruments: &[GroupId]) -> Result<Vec<i32
 }
 
 /// Entry point for the command line tool.
+///
+/// Checks a cache directory for the weights and reports progress on stderr, so
+/// it stays behind the `cli` feature: a wasm host already has the weights and
+/// drives [`transcribe_with`] itself.
+#[cfg(feature = "cli")]
 pub async fn transcribe(
     mono: &[f32],
-    model_path: &Path,
+    model_path: &std::path::Path,
     size: ModelSize,
     instruments: &[GroupId],
     prelude_forcing: bool,
