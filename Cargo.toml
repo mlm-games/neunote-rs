@@ -8,6 +8,8 @@ members = [
   "crates/neunote-engine",
   "crates/neunote-models",
   "crates/neunote-pipeline",
+  "crates/neunote-ui",
+  "apps/neunote-gui",
   "crates/neunote-cli",
 ]
 

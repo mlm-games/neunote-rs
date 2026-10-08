@@ -1,0 +1,18 @@
+[package]
+name = "neunote-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+neunote-audio = { path = "../neunote-audio" }
+neunote-engine = { path = "../neunote-engine" }
+neunote-midi = { path = "../neunote-midi" }
+neunote-pipeline = { path = "../neunote-pipeline" }
+
+repose-canvas = "0.31"
+repose-core = "0.31"
+repose-material = "0.31"
+repose-ui = "0.31"
+web-time = "0.2"

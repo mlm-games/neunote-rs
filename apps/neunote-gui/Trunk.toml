@@ -1,0 +1,8 @@
+[build]
+target = "index.html"
+
+[serve]
+headers = { "Cross-Origin-Opener-Policy" = "same-origin", "Cross-Origin-Embedder-Cookie-Policy" = "require-corp" }
+
+[watch]
+ignore = ["./target", "./dist"]

@@ -1,0 +1,38 @@
+[package]
+name = "neunote-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "neunote_gui"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "neunote-gui"
+path = "src/main.rs"
+
+[dependencies]
+neunote-ui = { path = "../../crates/neunote-ui" }
+neunote-types = { path = "../../crates/neunote-types" }
+repose-platform = "0.31"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11"
+log = "0.4"
+neunote-models = { path = "../../crates/neunote-models" }
+rfd = "0.17"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "Document",
+    "Element",
+    "File",
+    "FileList",
+    "HtmlElement",
+    "HtmlInputElement",
+    "Url",
+] }
