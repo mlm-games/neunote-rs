@@ -3,11 +3,11 @@
 //! The command line interface.
 //!
 //! Three commands do real work: `devices`, `models` and `transcribe`.
-//! Transcription needs the inference engine, which is not built yet, so
-//! `transcribe` reports that plainly rather than pretending or silently
-//! falling back to the old Basic Pitch pipeline. Everything up to and after
-//! the engine call -- decoding, resampling, the chunk loop, note assembly,
-//! MIDI export -- is wired up and exercised by the tests.
+//! Transcription runs the engine chunk by chunk over decoded audio and writes
+//! MIDI out the other end; everything around the engine call -- decoding,
+//! resampling, the chunk loop, note assembly, MIDI export -- is wired up and
+//! exercised by the tests. `devices` has nothing to enumerate: transcription
+//! runs on the CPU, so it says that instead of printing a fake list.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 
 use neunote_types::{GroupId, ModelSize, NoteEvent};
 
-use neunote_pipeline::{muscriptor::Muscriptor, transcribe_with, Outcome};
+use neunote_pipeline::{Outcome, muscriptor::Muscriptor, transcribe_with};
 
 #[derive(Parser)]
 #[command(
@@ -153,13 +153,12 @@ fn run(command: Command, cache: &neunote_models::Cache) -> Result<(), String> {
     }
 }
 
-/// Device enumeration belongs to the engine, which does not exist yet. Rather
-/// than print a fake CPU-only list that would have to be thrown away, this says
-/// what is missing.
+/// Nothing to enumerate: transcription runs on the CPU. Rather than print a
+/// fake device list that would have to be thrown away later, this says so.
 fn devices() -> Result<(), String> {
     eprintln!(
-        "device enumeration is part of the inference engine, which has not been built yet.\n\
-         Nothing to list: transcription runs on the CPU once the engine lands."
+        "device enumeration is not implemented.\n\
+         Nothing to list: transcription runs on the CPU."
     );
     Ok(())
 }

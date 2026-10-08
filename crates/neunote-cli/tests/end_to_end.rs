@@ -167,12 +167,12 @@ fn a_missing_model_is_reported_before_any_expensive_work() {
 }
 
 #[test]
-fn devices_says_the_engine_is_missing_instead_of_faking_a_list() {
+fn devices_says_enumeration_is_missing_instead_of_faking_a_list() {
     let models = scratch("devices");
     let (ok, _, stderr) = run(&["devices"], &models);
 
     assert!(ok);
-    assert!(stderr.contains("not been built"), "got: {stderr}");
+    assert!(stderr.contains("not implemented"), "got: {stderr}");
 }
 
 #[test]
