@@ -82,8 +82,10 @@ impl Refs {
 
             let elements = u64::from_le_bytes(take(8).try_into().unwrap()) as usize;
             let data: Vec<f32> = take(elements * 4)
-                .chunks_exact(4)
-                .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|word| f32::from_le_bytes(*word))
                 .collect();
 
             assert_eq!(
@@ -239,12 +241,16 @@ fn fixture() -> Vec<f32> {
             let raw = &bytes[at + 8..at + 8 + size];
             samples = match format {
                 1 => raw
-                    .chunks_exact(2)
-                    .map(|word| i16::from_le_bytes(word.try_into().unwrap()) as f32 / 32768.0)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|word| i16::from_le_bytes(*word) as f32 / 32768.0)
                     .collect(),
                 3 => raw
-                    .chunks_exact(4)
-                    .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|word| f32::from_le_bytes(*word))
                     .collect(),
                 other => panic!("unsupported WAV format {other}"),
             };

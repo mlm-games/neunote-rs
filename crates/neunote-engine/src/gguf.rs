@@ -168,7 +168,7 @@ impl Gguf {
         Self::parse(bytes).map_err(|error| Error::Checkpoint(format!("{}: {error}", path.display())))
     }
 
-    fn parse(bytes: Vec<u8>) -> Result<Self, Error> {
+    pub(crate) fn parse(bytes: Vec<u8>) -> Result<Self, Error> {
         let mut cursor = Cursor::new(&bytes);
 
         if cursor.take(4)? != MAGIC {
@@ -285,17 +285,21 @@ impl Gguf {
         let raw = &self.bytes[start..start + tensor.nbytes()];
         let count = tensor.elements();
 
-        // `chunks_exact` on a slice whose length the shape check already pinned
-        // to a multiple of the element width, so the tail cannot be dropped.
+        // `as_chunks` on a slice whose length the shape check already pinned to
+        // a multiple of the element width, so the tail cannot be dropped.
         let weight = match tensor.kind {
             DType::F32 => Weight::F32(
-                raw.chunks_exact(4)
-                    .map(|word| f32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+                raw.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|word| f32::from_le_bytes(*word))
                     .collect(),
             ),
             DType::F16 => Weight::F16(
-                raw.chunks_exact(2)
-                    .map(|word| f16::from_bits(u16::from_le_bytes([word[0], word[1]])))
+                raw.as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|word| f16::from_bits(u16::from_le_bytes(*word)))
                     .collect(),
             ),
         };

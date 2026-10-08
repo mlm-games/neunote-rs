@@ -19,7 +19,7 @@ use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use thiserror::Error;
@@ -78,12 +78,31 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, AudioError> {
         source,
     })?;
 
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
     let mut hint = Hint::new();
     if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
         hint.with_extension(extension);
     }
+
+    decode_stream(Box::new(file), hint, &label)
+}
+
+/// Decode audio a host already holds in memory, named for error messages and
+/// for the extension hint.
+pub fn decode_bytes(bytes: &[u8], label: &str) -> Result<AudioBuffer, AudioError> {
+    let mut hint = Hint::new();
+    if let Some((_, extension)) = label.rsplit_once('.') {
+        hint.with_extension(extension);
+    }
+
+    decode_stream(Box::new(std::io::Cursor::new(bytes.to_vec())), hint, label)
+}
+
+fn decode_stream(
+    source: Box<dyn MediaSource>,
+    hint: Hint,
+    label: &str,
+) -> Result<AudioBuffer, AudioError> {
+    let mss = MediaSourceStream::new(source, Default::default());
 
     let probe = symphonia::default::get_probe()
         .format(
@@ -93,14 +112,14 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, AudioError> {
             &MetadataOptions::default(),
         )
         .map_err(|error| AudioError::Unsupported {
-            path: label.clone(),
+            path: label.to_owned(),
             message: error.to_string(),
         })?;
 
     let mut format = probe.format;
     let track = format
         .default_track()
-        .ok_or_else(|| AudioError::NoStream(label.clone()))?;
+        .ok_or_else(|| AudioError::NoStream(label.to_owned()))?;
 
     let track_id = track.id;
     let channels = track
@@ -114,14 +133,14 @@ pub fn decode_file(path: &Path) -> Result<AudioBuffer, AudioError> {
         .codec_params
         .sample_rate
         .ok_or_else(|| AudioError::Unsupported {
-            path: label.clone(),
+            path: label.to_owned(),
             message: "stream has no sample rate".to_owned(),
         })?;
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|error| AudioError::Unsupported {
-            path: label.clone(),
+            path: label.to_owned(),
             message: error.to_string(),
         })?;
 

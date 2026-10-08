@@ -181,6 +181,17 @@ pub fn write_midi_file_from_tracks(
     tracks: &[Track],
     tempo_bpm: f64,
 ) -> std::io::Result<()> {
+    std::fs::write(path, encode_tracks(tracks, tempo_bpm))
+}
+
+/// The same file as [`write_midi_file`], as bytes -- for a host that hands them
+/// to the user rather than writing a path.
+pub fn midi_bytes(notes: &[NoteEvent], tempo_bpm: f64) -> Result<Vec<u8>, TrackError> {
+    let tracks = group_by_program(notes)?;
+    Ok(encode_tracks(&tracks, tempo_bpm))
+}
+
+fn encode_tracks(tracks: &[Track], tempo_bpm: f64) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"MThd");
     bytes.extend_from_slice(&6u32.to_be_bytes());
@@ -193,7 +204,7 @@ pub fn write_midi_file_from_tracks(
         push_track(&mut bytes, &instrument_track(track, tempo_bpm));
     }
 
-    std::fs::write(path, bytes)
+    bytes
 }
 
 fn push_track(out: &mut Vec<u8>, events: &[u8]) {

@@ -66,8 +66,10 @@ fn refs() -> Vec<f32> {
             assert_eq!(shape[1], 5);
             assert_eq!(elements as u64, shape[0] * 5);
             return bytes[at..at + elements as usize * 4]
-                .chunks_exact(4)
-                .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|word| f32::from_le_bytes(*word))
                 .collect();
         }
 
@@ -96,12 +98,16 @@ fn fixture() -> Vec<f32> {
             let raw = &bytes[at + 8..at + 8 + size];
             samples = match format {
                 1 => raw
-                    .chunks_exact(2)
-                    .map(|word| i16::from_le_bytes(word.try_into().unwrap()) as f32 / 32768.0)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|word| i16::from_le_bytes(*word) as f32 / 32768.0)
                     .collect(),
                 _ => raw
-                    .chunks_exact(4)
-                    .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|word| f32::from_le_bytes(*word))
                     .collect(),
             };
         }
@@ -155,7 +161,9 @@ fn transcribe_fixture() -> Vec<NoteEvent> {
 fn step_4_the_notes_match() {
     let flat = refs();
     let want: Vec<Reference> = flat
-        .chunks_exact(5)
+        .as_chunks::<5>()
+        .0
+        .iter()
         .map(|note| Reference {
             onset: f64::from(note[0]),
             offset: f64::from(note[1]),

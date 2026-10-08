@@ -32,6 +32,12 @@ impl Muscriptor {
     pub fn model(&self) -> &Model {
         &self.model
     }
+
+    /// Wrap a model a host loaded itself -- from bytes it fetched or picked
+    /// rather than from a path.
+    pub fn from_model(model: Model) -> Self {
+        Self { model }
+    }
 }
 
 impl Engine for Muscriptor {

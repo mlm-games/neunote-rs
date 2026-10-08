@@ -71,8 +71,19 @@ impl Model {
     /// generation without a caller having to know the frame count:
     /// `mel_frames + 1 + selectable_instruments + 1 + max_tokens`.
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let file = Gguf::open(path)?;
+        Self::from_gguf(Gguf::open(path)?, &path.display().to_string())
+    }
 
+    /// Load a checkpoint a host already holds in memory -- one it fetched or
+    /// picked rather than opened by path. Past the bytes this is the same read
+    /// as [`Model::load`].
+    pub fn from_bytes(bytes: Vec<u8>, label: &str) -> Result<Self, Error> {
+        let file = Gguf::parse(bytes)
+            .map_err(|error| Error::Checkpoint(format!("{label}: {error}")))?;
+        Self::from_gguf(file, label)
+    }
+
+    fn from_gguf(file: Gguf, label: &str) -> Result<Self, Error> {
         let version = if file.has(&key("format_version")) {
             file.i32(&key("format_version"))?
         } else {
@@ -80,8 +91,7 @@ impl Model {
         };
         if version as u32 != neunote_types::CHECKPOINT_FORMAT_VERSION {
             return Err(Error::Checkpoint(format!(
-                "{} is checkpoint format version {version}; this build reads {}",
-                path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default(),
+                "{label} is checkpoint format version {version}; this build reads {}",
                 neunote_types::CHECKPOINT_FORMAT_VERSION
             )));
         }
