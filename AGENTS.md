@@ -46,7 +46,7 @@ These are transcribed, not chosen. Do not "clean them up".
 - **`shift` is a step count, not milliseconds.** Value `v` means
   `start_tick + v`, at 100 steps per second. `shift 0` is a no-op, not a rewind.
   Reading it as a delta produces plausible, progressively wrong timing.
-- **Prefix order** is `[mel, dataset_name, instrument_group…, tokens]` — the
+- **Prefix order** is `[mel, dataset_name, instrument_group…, tokens]`, the
   reverse of `ConditioningProvider`'s iteration order.
 - **Class embeddings:** null class is row 1, group `g` is row `g + 2`.
 - **Sinusoidal positions:** cosine half first, exponent denominator `half_dim - 1`.
