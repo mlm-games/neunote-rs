@@ -29,7 +29,6 @@ from prose. Where a constant is quoted, it was read off the reference source.
 | `neunote-midi` | One track per instrument, drums on channel 10 | no |
 | `neunote-models` | Manifest pins, resumable download, digest verification | no |
 | `neunote-cli` | The pipeline around the engine, and the `neunote` binary | no |
-| `neunote-core` | The legacy Basic Pitch pipeline. Being replaced. | yes (JSON) |
 | `neunote-engine` | **not yet written.** Mel front-end, transformer, greedy decode. | yes |
 
 Everything except `neunote-engine` is done. `neunote-cli` defines the seam the
@@ -100,7 +99,9 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Only `neunote-core` has no tests; it is being deleted.
+Every crate has tests. The legacy Basic Pitch pipeline that used to live here
+was deleted rather than kept as a fallback, so there is no path that produces
+notes without MuScriptor.
 
 `crates/neunote-tokenizer/tests/reference_vectors.rs` replays all 17 vectors in
 `testdata/vectors/note_vectors.json`, vendored from the reference. Passing means

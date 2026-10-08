@@ -7,7 +7,6 @@ members = [
   "crates/neunote-midi",
   "crates/neunote-models",
   "crates/neunote-cli",
-  "crates/neunote-core",
 ]
 
 [workspace.package]
