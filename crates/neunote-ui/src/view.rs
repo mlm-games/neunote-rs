@@ -39,14 +39,23 @@ pub struct LoadedWeights {
 type Picked = Rc<dyn Fn(Option<LoadedAudio>)>;
 type PickedWeights = Rc<dyn Fn(Option<LoadedWeights>)>;
 type Saver = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
+type Progress = Rc<dyn Fn(u64, u64)>;
+type Bytes = Rc<dyn Fn(Result<Rc<Vec<u8>>, String>)>;
 
 /// What the view needs from its platform. The desktop shell answers with
-/// dialogs and the model cache; the web shell with a file input and a download.
+/// dialogs and the model cache; the web shell with a file input, a download,
+/// and a browser store.
 pub struct Shell {
     pub pick_audio: Rc<dyn Fn(Picked)>,
     pub pick_weights: Rc<dyn Fn(PickedWeights)>,
     /// A verified checkpoint already on this machine, if there is one.
     pub cached_weights: Rc<dyn Fn(ModelSize) -> Option<PathBuf>>,
+    /// Checkpoint bytes this host already holds. Asynchronous because a browser
+    /// reads them back out of its own store; an error says what to do about it.
+    pub resolve_weights: Rc<dyn Fn(ModelSize, Bytes)>,
+    /// Fetch a checkpoint into the host's own store. `accepted` is the user's
+    /// answer on the weights' licence; this host enforces it, not the view.
+    pub fetch_weights: Rc<dyn Fn(ModelSize, bool, Progress, Bytes)>,
     pub save_midi: Saver,
 }
 
@@ -83,6 +92,7 @@ fn app(shell: &Shell, _scheduler: &mut Scheduler) -> View {
     let prelude = remember(|| signal(true));
     let instruments = remember(|| signal(String::new()));
     let hidden = remember(|| signal(Rc::new(HashSet::<u16>::new())));
+    let licence = remember(|| signal(false));
     let zoom = remember(|| signal(24.0f32));
     let selected = remember(|| signal(None::<usize>));
 
@@ -235,24 +245,12 @@ fn app(shell: &Shell, _scheduler: &mut Scheduler) -> View {
         let selected = selected.clone();
         let job_slot = job_slot.clone();
         let cached = shell.cached_weights.clone();
+        let resolve = shell.resolve_weights.clone();
 
         move || {
             let Some(source) = source.get() else {
                 status.set("open an audio file first".to_owned());
                 return;
-            };
-
-            let weights = match cached(size.get()) {
-                Some(path) => Weights::Path(path),
-                None => {
-                    match picked_weights.get() {
-                        Some(bytes) => Weights::Bytes(Arc::new(bytes.as_ref().clone())),
-                        None => {
-                            status.set("no checkpoint: fetch one with `neunote models fetch`, or pick a .gguf".to_owned());
-                            return;
-                        }
-                    }
-                }
             };
 
             let groups = match parse_groups(&instruments.get()) {
@@ -263,22 +261,99 @@ fn app(shell: &Shell, _scheduler: &mut Scheduler) -> View {
                 }
             };
 
-            notes.set(None);
-            selected.set(None);
-            phase.set(Phase::Working { done: 0, total: 0 });
-            status.set(format!(
-                "transcribing {:.1}s with {}…",
-                source.duration,
-                weights.label()
-            ));
+            // Whatever the host hands over -- a path, or bytes from its own
+            // store -- this is where the run starts.
+            let ready = {
+                let phase = phase.clone();
+                let status = status.clone();
+                let notes = notes.clone();
+                let selected = selected.clone();
+                let job_slot = job_slot.clone();
+                let size = size.clone();
+                let prelude = prelude.clone();
 
-            *job_slot.borrow_mut() = Some(Job::start(
-                weights,
-                source.samples.clone(),
-                size.get(),
-                groups,
-                prelude.get(),
-            ));
+                Rc::new(move |weights: Weights| {
+                    notes.set(None);
+                    selected.set(None);
+                    phase.set(Phase::Working { done: 0, total: 0 });
+                    status.set(format!(
+                        "transcribing {:.1}s with {}…",
+                        source.duration,
+                        weights.label()
+                    ));
+
+                    *job_slot.borrow_mut() = Some(Job::start(
+                        weights,
+                        Arc::clone(&source.samples),
+                        size.get(),
+                        groups.clone(),
+                        prelude.get(),
+                    ));
+                })
+            };
+
+            match cached(size.get()) {
+                Some(path) => ready(Weights::Path(path)),
+                None => match picked_weights.get() {
+                    Some(bytes) => ready(Weights::Bytes(Arc::new(bytes.as_ref().clone()))),
+                    None => {
+                        phase.set(Phase::Working { done: 0, total: 0 });
+                        status.set("looking for a checkpoint…".to_owned());
+
+                        let ready = Rc::clone(&ready);
+                        let failed_phase = phase.clone();
+                        let failed_status = status.clone();
+                        resolve(
+                            size.get(),
+                            Rc::new(move |result| match result {
+                                Ok(bytes) => {
+                                    ready(Weights::Bytes(Arc::new(bytes.as_ref().clone())))
+                                }
+                                Err(error) => {
+                                    failed_phase.set(Phase::Idle);
+                                    failed_status.set(error);
+                                }
+                            }),
+                        );
+                    }
+                },
+            }
+        }
+    };
+
+    let on_download = {
+        let status = status.clone();
+        let phase = phase.clone();
+        let size = size.clone();
+        let accepted = licence.clone();
+        let fetch = shell.fetch_weights.clone();
+
+        move || {
+            let progress_status = status.clone();
+            let done_status = status.clone();
+            let done_phase = phase.clone();
+            let size_now = size.get();
+
+            fetch(
+                size_now,
+                accepted.get(),
+                Rc::new(move |done, total| {
+                    progress_status.set(format!(
+                        "fetching the {size_now} weights: {:.0} of {:.0} MB",
+                        done as f64 / (1024.0 * 1024.0),
+                        total as f64 / (1024.0 * 1024.0)
+                    ));
+                }),
+                Rc::new(move |result| {
+                    done_phase.set(Phase::Idle);
+                    done_status.set(match result {
+                        Ok(bytes) => {
+                            format!("checkpoint ready ({} MB)", bytes.len() / (1024 * 1024))
+                        }
+                        Err(error) => error,
+                    });
+                }),
+            );
         }
     };
 
@@ -389,6 +464,23 @@ fn app(shell: &Shell, _scheduler: &mut Scheduler) -> View {
                 },
             ),
             Spacer(),
+            Row(Modifier::new().gap(Dp(4.0))).child((
+                Switch(
+                    licence.get(),
+                    {
+                        let licence = licence.clone();
+                        move |on| licence.set(on)
+                    },
+                    SwitchConfig::default(),
+                ),
+                Text("weights are CC BY-NC").size(Sp(12.0)),
+            )),
+            TextButton(
+                Modifier::new(),
+                on_download,
+                ButtonConfig::default(),
+                || Text("Download weights"),
+            ),
             TextButton(
                 Modifier::new(),
                 on_transcribe,

@@ -2329,6 +2329,7 @@ name = "neunote-gui"
 version = "0.2.0"
 dependencies = [
  "env_logger",
+ "hex",
  "js-sys",
  "log",
  "neunote-models",
@@ -2336,6 +2337,7 @@ dependencies = [
  "neunote-ui",
  "repose-platform",
  "rfd",
+ "sha2",
  "wasm-bindgen",
  "web-sys",
 ]

@@ -21,6 +21,21 @@ pub(crate) fn shell() -> Shell {
     Shell {
         cached_weights: Rc::new(move |size| cached.get(&size).cloned()),
 
+        // The desktop reads weights from the cache above, or from a file the
+        // user picks; there is nothing for the view to resolve or fetch.
+        resolve_weights: Rc::new(|_size, done| {
+            done(Err(String::from(
+                "no cached checkpoint for that size -- pick a .gguf, or run `neunote models fetch`",
+            )));
+        }),
+
+        fetch_weights: Rc::new(|size, _accepted, _progress, done| {
+            done(Err(format!(
+                "run `neunote models fetch --size {}` and it will be here",
+                size.as_str()
+            )));
+        }),
+
         pick_audio: Rc::new(|done| {
             let picked = rfd::FileDialog::new()
                 .add_filter("Audio", AUDIO)

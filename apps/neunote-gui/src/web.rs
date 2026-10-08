@@ -11,9 +11,18 @@ use web_sys::{Blob, File, FileList, HtmlElement, HtmlInputElement, Url};
 
 pub(crate) fn shell() -> Shell {
     Shell {
-        // A browser tab has no model cache: the checkpoint is picked like any
-        // other file.
+        // A browser tab has no model cache: the checkpoint lives in OPFS, and
+        // `resolve_weights` reads it back from there.
         cached_weights: Rc::new(|_size: ModelSize| None),
+
+        resolve_weights: Rc::new(crate::web_weights::resolve),
+
+        fetch_weights: Rc::new(|size, accepted, progress, done| {
+            if accepted {
+                crate::web_weights::record_acceptance();
+            }
+            crate::web_weights::fetch(size, progress, done)
+        }),
 
         pick_audio: Rc::new(|done| {
             let picked = {

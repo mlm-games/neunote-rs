@@ -10,6 +10,8 @@
 mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+mod web_weights;
 
 use neunote_ui::root;
 

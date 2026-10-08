@@ -15,16 +15,20 @@ path = "src/main.rs"
 [dependencies]
 neunote-ui = { path = "../../crates/neunote-ui" }
 neunote-types = { path = "../../crates/neunote-types" }
+# Only its manifest reaches the web build; the cache and downloader are the
+# native-only halves.
+neunote-models = { path = "../../crates/neunote-models" }
 repose-platform = "0.31"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
 log = "0.4"
-neunote-models = { path = "../../crates/neunote-models" }
 rfd = "0.17"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+hex = "0.4"
 js-sys = "0.3"
+sha2 = "0.10"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = [
     "Blob",
@@ -32,7 +36,19 @@ web-sys = { version = "0.3", features = [
     "Element",
     "File",
     "FileList",
+    "FileSystemDirectoryHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemFileHandle",
+    "FileSystemGetFileOptions",
+    "FileSystemWritableFileStream",
     "HtmlElement",
     "HtmlInputElement",
+    "Navigator",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Storage",
+    "StorageManager",
     "Url",
 ] }
