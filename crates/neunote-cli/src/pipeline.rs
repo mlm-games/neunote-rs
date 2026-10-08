@@ -263,11 +263,6 @@ pub fn forbidden_for(size: ModelSize, instruments: &[GroupId]) -> Result<Vec<i32
 }
 
 /// Entry point for the command line tool.
-///
-/// Checks a cache directory for the weights and reports progress on stderr, so
-/// it stays behind the `cli` feature: a wasm host already has the weights and
-/// drives [`transcribe_with`] itself.
-#[cfg(feature = "cli")]
 pub async fn transcribe(
     mono: &[f32],
     model_path: &Path,
