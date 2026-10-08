@@ -1,0 +1,19 @@
+[package]
+name = "neunote-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+futures-util = { workspace = true }
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+serde = { workspace = true }
+sha2 = "0.10"
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
+
+[dev-dependencies]
+tempfile = "3"

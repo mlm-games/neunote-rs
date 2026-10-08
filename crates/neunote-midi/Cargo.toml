@@ -1,0 +1,12 @@
+[package]
+name = "neunote-midi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+midly = "0.5"
+
+[dev-dependencies]
+tempfile = "3"

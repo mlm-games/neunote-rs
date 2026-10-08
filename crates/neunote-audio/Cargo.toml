@@ -1,0 +1,19 @@
+[package]
+name = "neunote-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+rubato = "0.14"
+symphonia = { version = "0.5", features = [
+    "aac",
+    "flac",
+    "isomp4",
+    "mp3",
+    "ogg",
+    "pcm",
+    "wav",
+] }
+thiserror = { workspace = true }

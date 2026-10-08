@@ -50,6 +50,25 @@ pub enum ModelSize {
     Large,
 }
 
+impl std::fmt::Display for ModelSize {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ModelSize {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "large" => Ok(Self::Large),
+            other => Err(format!("unknown model size: {other}")),
+        }
+    }
+}
+
 impl ModelSize {
     pub const ALL: [Self; 3] = [Self::Small, Self::Medium, Self::Large];
     pub const DEFAULT: Self = Self::Medium;
@@ -62,11 +81,16 @@ impl ModelSize {
         }
     }
 
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Small => "Small",
+            Self::Medium => "Medium",
+            Self::Large => "Large",
+        }
+    }
+
     pub fn from_str_or(value: &str, fallback: Self) -> Self {
-        Self::ALL
-            .into_iter()
-            .find(|size| size.as_str() == value)
-            .unwrap_or(fallback)
+        value.parse().unwrap_or(fallback)
     }
 }
 
@@ -266,6 +290,36 @@ pub struct NoteEvent {
     pub pitch: u8,
     pub program: u16,
     pub is_drum: bool,
+}
+
+impl NoteEvent {
+    pub fn new(onset: f64, offset: f64, pitch: u8, program: u16, is_drum: bool) -> Self {
+        Self {
+            onset,
+            offset,
+            pitch,
+            program,
+            is_drum,
+        }
+    }
+
+    pub fn end_time(&self) -> f64 {
+        self.offset
+    }
+
+    pub fn duration_secs(&self) -> f64 {
+        self.offset - self.onset
+    }
+
+    /// The fixed amplitude MuScriptor's notes carry. The model predicts no
+    /// dynamics, so this is a constant rather than a measurement.
+    pub fn amplitude(&self) -> f32 {
+        FIXED_NOTE_AMPLITUDE
+    }
+
+    pub fn velocity(&self) -> u8 {
+        MIDI_VELOCITY
+    }
 }
 
 pub fn sort_notes(notes: &mut [NoteEvent]) {
