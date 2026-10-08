@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 //! A pure-Rust MuScriptor: the mel front-end, the transformer, and greedy
 //! decoding, transcribed from [muscriptor.cpp](https://github.com/DamRsn/muscriptor.cpp).
 //!
@@ -21,6 +19,8 @@ pub mod gguf;
 pub mod model;
 pub mod ops;
 pub mod stft;
+
+mod simd;
 
 use std::path::Path;
 

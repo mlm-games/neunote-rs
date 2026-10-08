@@ -19,6 +19,10 @@ use crate::gguf::Weight;
 /// Below this many rows, scheduling costs more than the arithmetic.
 const PARALLEL_ROW_FLOOR: usize = 64;
 
+/// Below this many columns a row has no lane per element to spread out over,
+/// so it becomes a dot product instead of a vector update.
+const WIDE_COLUMNS: usize = 8;
+
 /// Split an output buffer into contiguous row blocks, one per parallel task.
 ///
 /// Output rows are independent, so the split cannot change a result. Small work
@@ -49,6 +53,12 @@ fn row_blocks(y: &mut [f32], rows: usize, columns: usize) -> (usize, Vec<&mut [f
 /// the whole reason the conversion is here rather than at load: a checkpoint
 /// stays the size it was published at, and every element is still converted
 /// exactly once per matmul.
+///
+/// Two kernels, split on how many columns there are. Wide enough and a row is a
+/// vector update, where each output element keeps the reduction in weight order
+/// and only the element loop is vectorised. Too narrow and there is nothing to
+/// spread an element over but the reduction, so a row becomes a dot product --
+/// which is what every decode step is made of.
 pub fn matmul(y: &mut [f32], weight: &Weight, x: &[f32], columns: usize, bias: Option<&[f32]>) {
     assert!(columns > 0, "a matmul needs at least one column");
     let reduction = x.len() / columns;
@@ -58,25 +68,86 @@ pub fn matmul(y: &mut [f32], weight: &Weight, x: &[f32], columns: usize, bias: O
     let (rows_per_block, blocks) = row_blocks(y, rows, columns);
 
     blocks.into_par_iter().enumerate().for_each(|(block, out)| {
-        let mut scratch = vec![0.0f32; reduction];
-
-        for (offset, chunk) in out.chunks_mut(columns).enumerate() {
-            let row = block * rows_per_block + offset;
-            weight.row_into(row, reduction, &mut scratch);
-
-            match bias {
-                Some(bias) => chunk.fill(bias[row]),
-                None => chunk.fill(0.0),
-            }
-
-            for (k, scale) in scratch.iter().enumerate() {
-                let column = &x[k * columns..(k + 1) * columns];
-                for (slot, value) in chunk.iter_mut().zip(column) {
-                    *slot += *scale * *value;
-                }
-            }
+        let first_row = block * rows_per_block;
+        if columns < WIDE_COLUMNS {
+            dot_product_rows(out, weight, x, columns, bias, first_row);
+        } else {
+            vector_rows(out, weight, x, columns, bias, first_row);
         }
     });
+}
+
+/// A block of rows whose columns are too few to vectorise, so each row is one
+/// dot product.
+///
+/// At a single column -- the decode path, and the head on every pass -- the
+/// whole row is contiguous in `x` and the dot runs in `simd`. Two to seven
+/// columns are strided instead, and stay scalar: nothing the model does lands
+/// there.
+fn dot_product_rows(
+    out: &mut [f32],
+    weight: &Weight,
+    x: &[f32],
+    columns: usize,
+    bias: Option<&[f32]>,
+    first_row: usize,
+) {
+    let reduction = x.len() / columns;
+
+    if columns == 1 {
+        for (offset, chunk) in out.chunks_mut(columns).enumerate() {
+            let row = first_row + offset;
+            let base = bias.map_or(0.0, |bias| bias[row]);
+            let bounds = row * reduction..(row + 1) * reduction;
+
+            chunk[0] = base
+                + match weight {
+                    Weight::F32(values) => crate::simd::dot_f32(&values[bounds], x),
+                    Weight::F16(values) => crate::simd::dot_f16(&values[bounds], x),
+                };
+        }
+        return;
+    }
+
+    let mut scratch = vec![0.0f32; reduction];
+    for (offset, chunk) in out.chunks_mut(columns).enumerate() {
+        let row = first_row + offset;
+        let base = bias.map_or(0.0, |bias| bias[row]);
+
+        weight.row_into(row, reduction, &mut scratch);
+        for (column, slot) in chunk.iter_mut().enumerate() {
+            let mut total = 0.0f32;
+            for (k, scale) in scratch.iter().enumerate() {
+                total += *scale * x[k * columns + column];
+            }
+            *slot = base + total;
+        }
+    }
+}
+
+/// A block of rows wide enough to vectorise across their columns.
+fn vector_rows(
+    out: &mut [f32],
+    weight: &Weight,
+    x: &[f32],
+    columns: usize,
+    bias: Option<&[f32]>,
+    first_row: usize,
+) {
+    let reduction = x.len() / columns;
+    let mut scratch = vec![0.0f32; reduction];
+
+    for (offset, chunk) in out.chunks_mut(columns).enumerate() {
+        let row = first_row + offset;
+        weight.row_into(row, reduction, &mut scratch);
+
+        match bias {
+            Some(bias) => chunk.fill(bias[row]),
+            None => chunk.fill(0.0),
+        }
+
+        crate::simd::axpy_row(chunk, &scratch, x, columns);
+    }
 }
 
 /// LayerNorm over the reduction axis, with an affine scale and shift.

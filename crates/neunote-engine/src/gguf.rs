@@ -137,9 +137,7 @@ impl Weight {
         match self {
             Self::F32(values) => out.copy_from_slice(&values[index * cols..(index + 1) * cols]),
             Self::F16(values) => {
-                for (slot, value) in out.iter_mut().zip(&values[index * cols..(index + 1) * cols]) {
-                    *slot = value.to_f32();
-                }
+                crate::simd::f16_to_f32(out, &values[index * cols..(index + 1) * cols]);
             }
         }
     }

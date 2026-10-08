@@ -764,11 +764,7 @@ fn attend(
 
                 for (key, slot) in scores.iter_mut().enumerate() {
                     let vector = &keys[key * head_dim..(key + 1) * head_dim];
-                    let mut total = 0.0f32;
-                    for (a, b) in query.iter().zip(vector) {
-                        total += *a * *b;
-                    }
-                    *slot = total * scale;
+                    *slot = crate::simd::dot_f32(query, vector) * scale;
                 }
 
                 let masked = &mask[token * n_kv..(token + 1) * n_kv];
@@ -780,9 +776,7 @@ fn attend(
                         continue;
                     }
                     let vector = &values[key * head_dim..(key + 1) * head_dim];
-                    for (slot, value) in merged.iter_mut().zip(vector) {
-                        *slot += *probability * *value;
-                    }
+                    crate::simd::axpy_scale(&mut merged, *probability, vector);
                 }
 
                 for offset in 0..head_dim {
