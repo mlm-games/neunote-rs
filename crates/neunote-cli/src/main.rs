@@ -371,7 +371,14 @@ fn parse_instruments(names: &[String]) -> Result<Vec<GroupId>, String> {
 /// Group notes by instrument and report what was found, so a silent or
 /// one-instrument result is visible without opening the file.
 fn summarise(notes: &[NoteEvent], output: &Path) {
-    let tracks = neunote_midi::group_by_program(notes);
+    let tracks = match neunote_midi::group_by_program(notes) {
+        Ok(tracks) => tracks,
+        Err(error) => {
+            eprintln!();
+            eprintln!("cannot lay the notes out as tracks: {error}");
+            return;
+        }
+    };
 
     eprintln!();
     if tracks.is_empty() {

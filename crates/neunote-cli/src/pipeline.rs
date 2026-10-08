@@ -53,8 +53,11 @@ pub trait Engine: Send {
     /// Generate tokens for one chunk.
     ///
     /// `prompt` is the forced tie prologue, empty for the first chunk. The
-    /// engine must append its own EOS and the forced tokens to whatever it
-    /// returns, so the tracker sees the same stream either way.
+    /// engine must return the forced prompt followed by its own tokens,
+    /// including the EOS it stops on: the reference decodes the prompt into the
+    /// same stream it hands the tracker, and the pipeline replays that stream
+    /// exactly once. Returning the prompt here *and* letting the caller replay
+    /// it would double-feed every boundary.
     fn generate(
         &mut self,
         samples: &[f32],
@@ -171,12 +174,12 @@ pub fn transcribe_with(
         let tokens = engine.generate(&padded, &prompt, &forbidden)?;
         validate_tokens(&tokens)?;
 
-        for token in &prompt {
-            actions.extend(tracker.feed_token(*token));
-        }
+        // The engine returns the forced prompt inside the stream it generated,
+        // exactly as the reference's own `generate` does. Replaying it here as
+        // well would feed every boundary twice and desynchronise the tracker.
         for token in &tokens {
-            if *token as usize >= NUM_TOKENS as usize {
-                continue;
+            if *token == neunote_tokenizer::EOS_ID {
+                break;
             }
             actions.extend(tracker.feed_token(*token));
         }
@@ -332,7 +335,10 @@ mod tests {
 
         fn generate(&mut self, _: &[f32], prompt: &[i32], _: &[i32]) -> Result<Vec<i32>, String> {
             self.prompts.push(prompt.to_vec());
-            let tokens = self.segments.get(self.calls).cloned().unwrap_or_default();
+            // A conforming engine returns the forced prompt inside the stream,
+            // then its own tokens.
+            let mut tokens = prompt.to_vec();
+            tokens.extend(self.segments.get(self.calls).cloned().unwrap_or_default());
             self.calls += 1;
             Ok(tokens)
         }
@@ -429,9 +435,14 @@ mod tests {
 
     #[test]
     fn an_engine_that_forgets_to_declare_carried_notes_closes_them_at_the_boundary() {
-        // The forced prompt is teacher-forced, so the pipeline feeds it to the
-        // tracker itself. An engine that returns its own bare tie on top of that
-        // declares nothing, and the reference closes whatever it did not name.
+        // The engine returns the forced prompt inside the stream it generates,
+        // and the pipeline replays that stream exactly once. This engine
+        // returns only its own tie, so it has declared nothing: the reference
+        // closes whatever a chunk did not name.
+        //
+        // This is the test that pins the contract. If the pipeline fed the
+        // prompt separately as well, the carried note would be declared anyway
+        // and would survive to `finish` instead of closing here.
         struct Forgetful {
             calls: usize,
         }
@@ -475,10 +486,16 @@ mod tests {
             Outcome::Cancelled => panic!("unexpectedly cancelled"),
         };
 
-        // The forced prompt re-declared the note, so it survives to `finish`,
-        // which closes it a minimum duration after its onset.
+        // A forced prompt is only authoritative because the engine replays it inside
+        // the stream it returns. An engine that drops it has not declared the
+        // carried note, so the tracker closes that note at the boundary.
         assert_eq!(notes.len(), 1);
-        assert!((notes[0].offset - 0.11).abs() < 1e-9);
+        assert!((notes[0].onset - 0.1).abs() < 1e-9);
+        assert!(
+            (notes[0].offset - 5.0).abs() < 1e-9,
+            "closed at the chunk-1 boundary, got {}",
+            notes[0].offset
+        );
     }
 
     #[test]

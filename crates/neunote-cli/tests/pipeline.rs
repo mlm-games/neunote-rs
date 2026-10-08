@@ -58,12 +58,14 @@ impl Engine for Scripted {
     fn generate(
         &mut self,
         samples: &[f32],
-        _prompt: &[i32],
+        prompt: &[i32],
         _forbidden: &[i32],
     ) -> Result<Vec<i32>, String> {
         // The pipeline must hand over exactly one padded chunk every time.
         assert_eq!(samples.len(), self.segment, "chunk length");
-        let tokens = self.chunks.get(self.next).cloned().unwrap_or_default();
+        // A conforming engine returns the forced prompt inside its own stream.
+        let mut tokens = prompt.to_vec();
+        tokens.extend(self.chunks.get(self.next).cloned().unwrap_or_default());
         self.next += 1;
         Ok(tokens)
     }
@@ -428,3 +430,4 @@ fn a_model_path_that_does_not_exist_is_reported() {
     let error = engine.generate(&[], &[], &[]).unwrap_err();
     assert!(error.contains("/nowhere/x.gguf"), "got {error}");
 }
+

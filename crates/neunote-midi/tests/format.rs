@@ -4,8 +4,8 @@
 use std::path::Path;
 
 use neunote_midi::{
-    DEFAULT_BPM, DRUM_CHANNEL, PPQ, Track, group_by_program, write_midi_file,
-    write_midi_file_from_tracks,
+    DEFAULT_BPM, DRUM_CHANNEL, MELODIC_CHANNEL_COUNT, PPQ, Track, group_by_program,
+    write_midi_file, write_midi_file_from_tracks,
 };
 use neunote_types::{DRUM_PROGRAM, MIDI_VELOCITY, NoteEvent};
 
@@ -240,15 +240,32 @@ fn every_instrument_keeps_its_own_program_in_its_own_track() {
 
 #[test]
 fn melodic_tracks_never_land_on_the_drum_channel() {
-    let notes: Vec<NoteEvent> = (0..20u16).map(|p| note(0.0, 1.0, 60, p)).collect();
+    // Every melodic channel, so the assignment is exercised to its limit.
+    let notes: Vec<NoteEvent> = (0..MELODIC_CHANNEL_COUNT as u16)
+        .map(|p| note(0.0, 1.0, 60, p))
+        .collect();
     let parsed = parse(&write(&notes));
 
+    assert_eq!(parsed.tracks.len(), MELODIC_CHANNEL_COUNT as usize + 1);
     for track in &parsed.tracks[1..] {
         assert!(
             track.iter().all(|event| event.channel != DRUM_CHANNEL),
             "a melodic track claimed the percussion channel"
         );
     }
+}
+
+#[test]
+fn too_many_instruments_is_refused_at_the_file_too() {
+    // A caller that only has `write_midi_file` must learn about the refusal
+    // rather than receive a file whose tracks share channels.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("too-many.mid");
+    let notes: Vec<NoteEvent> = (0..40u16).map(|p| note(0.0, 1.0, 60, p)).collect();
+
+    let error = write_midi_file(&path, &notes, DEFAULT_BPM).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!path.exists(), "no file should be written");
 }
 
 #[test]
@@ -294,7 +311,12 @@ fn writing_prebuilt_tracks_matches_writing_notes() {
     write_midi_file(&from_notes, &notes, DEFAULT_BPM).unwrap();
 
     let from_tracks = dir.path().join("b.mid");
-    write_midi_file_from_tracks(&from_tracks, &group_by_program(&notes), DEFAULT_BPM).unwrap();
+    write_midi_file_from_tracks(
+        &from_tracks,
+        &group_by_program(&notes).unwrap(),
+        DEFAULT_BPM,
+    )
+    .unwrap();
 
     assert_eq!(
         std::fs::read(&from_notes).unwrap(),
@@ -345,6 +367,7 @@ fn a_nonsense_tempo_falls_back_to_the_default() {
 fn a_track_keeps_the_notes_it_was_given() {
     let track = Track {
         program: 0,
+        is_drum: false,
         name: "acoustic_piano".to_owned(),
         channel: 0,
         notes: vec![note(0.0, 1.0, 60, 0), note(1.0, 2.0, 64, 0)],

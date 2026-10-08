@@ -132,8 +132,10 @@ parity before step 3 passes.
 The engine implements `neunote_cli::pipeline::Engine`. Its `generate` receives
 one zero-padded chunk, the forced tie prologue (empty on the first chunk, and
 empty when forcing is off), and the forbidden-token ids. It must return the
-generated tokens *including* EOS and including the forced prompt, because the
-pipeline replays the prompt through the tracker separately.
+forced prompt followed by the tokens it generated, EOS included. The pipeline
+replays that returned stream through the tracker exactly once, breaking at EOS,
+the way the reference's own `generate`/`transcribe` pair does. Feeding the
+prompt separately as well would double-feed every chunk boundary.
 
 ## Licence
 
