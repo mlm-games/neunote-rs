@@ -18,6 +18,7 @@ neunote-tokenizer = { path = "../neunote-tokenizer" }
 neunote-audio = { path = "../neunote-audio" }
 neunote-midi = { path = "../neunote-midi" }
 neunote-models = { path = "../neunote-models" }
+neunote-engine = { path = "../neunote-engine" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync"] }
 

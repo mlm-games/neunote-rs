@@ -5,6 +5,7 @@ members = [
   "crates/neunote-tokenizer",
   "crates/neunote-audio",
   "crates/neunote-midi",
+  "crates/neunote-engine",
   "crates/neunote-models",
   "crates/neunote-cli",
 ]

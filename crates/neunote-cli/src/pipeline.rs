@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use neunote_tokenizer::{
     ChunkBoundary, NUM_TOKENS, NoteAssembler, OpenNoteTracker, tie_section_tokens,
 };
-use neunote_types::{GroupId, ModelSize, NoteEvent, SEGMENT_DURATION_SECS, SEGMENT_SAMPLES};
+use neunote_types::{GroupId, ModelSize, NoteEvent, SEGMENT_DURATION_SECS};
 
 /// How far a run has got, for the progress line.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,6 +41,49 @@ pub enum Outcome {
     Cancelled,
 }
 
+/// One chunk's worth of work.
+pub struct ChunkRequest<'a> {
+    /// A whole 5 s segment of 16 kHz mono audio, zero-padded. The padding is
+    /// not masked away: the model sees trailing silence as audio, which is what
+    /// the reference does and what its note dumps are recorded under.
+    pub samples: &'a [f32],
+    /// The forced tie prologue, empty on the first chunk and empty when forcing
+    /// is off.
+    pub prompt: &'a [i32],
+    /// One class-embedding row per selected instrument. Empty means the
+    /// unconditional path, which is a single null-class row -- not the same
+    /// thing as selecting nothing, and the engine draws that distinction.
+    pub instrument_rows: &'a [i32],
+    /// Token ids the model may not produce. Empty means no restriction, which
+    /// differs from restricting to nothing.
+    pub forbidden: &'a [i32],
+}
+
+/// Why a chunk's generation stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stop {
+    Eos,
+    /// The token or context budget ran out. The reference treats this as a
+    /// warning rather than a failure, so a stream without EOS is a real outcome
+    /// and reporting it as a missing EOS would be a lie about the model.
+    Budget,
+}
+
+/// What an engine returns for one chunk.
+#[derive(Debug, Clone)]
+pub struct Chunk {
+    /// The forced prompt followed by the engine's own tokens, EOS included when
+    /// one was produced.
+    ///
+    /// The prompt is inside the stream because the reference's own `generate`
+    /// puts it there: the decode state machine has to see it to leave the tie
+    /// prologue. The pipeline replays the returned stream exactly once, so an
+    /// engine that also fed the prompt separately would double-feed every
+    /// boundary.
+    pub tokens: Vec<i32>,
+    pub stop: Stop,
+}
+
 /// The seam the inference engine plugs into.
 ///
 /// A model produces token ids for one chunk at a time. Everything after that --
@@ -51,62 +94,7 @@ pub trait Engine: Send {
     fn segment_samples(&self) -> usize;
 
     /// Generate tokens for one chunk.
-    ///
-    /// `prompt` is the forced tie prologue, empty for the first chunk. The
-    /// engine must return the forced prompt followed by its own tokens,
-    /// including the EOS it stops on: the reference decodes the prompt into the
-    /// same stream it hands the tracker, and the pipeline replays that stream
-    /// exactly once. Returning the prompt here *and* letting the caller replay
-    /// it would double-feed every boundary.
-    fn generate(
-        &mut self,
-        samples: &[f32],
-        prompt: &[i32],
-        forbidden: &[i32],
-    ) -> Result<Vec<i32>, String>;
-}
-
-/// The default engine slot.
-///
-/// There is no pure-Rust MuScriptor implementation yet. This refuses loudly
-/// rather than returning empty notes, which would look like a silent recording.
-pub struct UnavailableEngine {
-    reason: String,
-}
-
-impl UnavailableEngine {
-    pub fn missing_engine() -> Self {
-        Self {
-            reason: "the MuScriptor inference engine is not built yet.\n\
-                 The pipeline around it is: audio decoding, 16 kHz resampling, chunking,\n\
-                 prelude forcing, note assembly and MIDI export all work and are tested.\n\
-                 What is missing is the model itself -- the mel front-end, the\n\
-                 transformer, and the GGUF reader for the checkpoint format the\n\
-                 published weights use.\n\
-                 The weights are in place; run `neunote models fetch --size small`."
-                .to_owned(),
-        }
-    }
-
-    pub fn missing_model(path: &Path) -> Self {
-        Self {
-            reason: format!(
-                "no verified {} model at {}.\nRun `neunote models fetch` first.",
-                ModelSize::DEFAULT.as_str(),
-                path.display()
-            ),
-        }
-    }
-}
-
-impl Engine for UnavailableEngine {
-    fn segment_samples(&self) -> usize {
-        SEGMENT_SAMPLES
-    }
-
-    fn generate(&mut self, _: &[f32], _: &[i32], _: &[i32]) -> Result<Vec<i32>, String> {
-        Err(self.reason.clone())
-    }
+    fn generate(&mut self, request: ChunkRequest<'_>) -> Result<Chunk, String>;
 }
 
 /// Run a transcription over 16 kHz mono audio.
@@ -130,6 +118,7 @@ pub fn transcribe_with(
     }
 
     let forbidden = forbidden_for(model_size, instruments)?;
+    let instrument_rows = neunote_tokenizer::conditioning_rows(instruments);
 
     let mut tracker = OpenNoteTracker::new();
     let mut assembler = NoteAssembler::new();
@@ -171,13 +160,18 @@ pub fn transcribe_with(
             next_seek_time,
         });
 
-        let tokens = engine.generate(&padded, &prompt, &forbidden)?;
-        validate_tokens(&tokens)?;
+        let chunk = engine.generate(ChunkRequest {
+            samples: &padded,
+            prompt: &prompt,
+            instrument_rows: &instrument_rows,
+            forbidden: &forbidden,
+        })?;
+        validate_tokens(&chunk.tokens)?;
 
         // The engine returns the forced prompt inside the stream it generated,
         // exactly as the reference's own `generate` does. Replaying it here as
         // well would feed every boundary twice and desynchronise the tracker.
-        for token in &tokens {
+        for token in &chunk.tokens {
             if *token == neunote_tokenizer::EOS_ID {
                 break;
             }
@@ -216,25 +210,17 @@ fn padded_to(samples: &[f32], len: usize) -> Vec<f32> {
     padded
 }
 
-/// Check a model's token stream for the shape the tracker and the reference
-/// require: inside the vocabulary, and ending in EOS.
+/// Check a model's token stream for the shape the tracker needs: inside the
+/// vocabulary.
 ///
-/// Worth doing before decoding rather than after, because a stream with no EOS
-/// silently means "the chunk produced nothing" instead of "the model misbehaved".
+/// Whether the chunk ended on EOS is the engine's `Stop`, not something to
+/// infer here. Requiring EOS would turn a model that ran out of budget into an
+/// error and, worse, invite a caller to append an EOS the model never emitted.
 pub fn validate_tokens(tokens: &[i32]) -> Result<(), String> {
-    let mut saw_eos = false;
-
     for token in tokens {
         if *token < 0 || *token as usize >= NUM_TOKENS as usize {
             return Err(format!("token {token} is outside the vocabulary"));
         }
-        if *token == neunote_tokenizer::EOS_ID {
-            saw_eos = true;
-        }
-    }
-
-    if !saw_eos {
-        return Err("the chunk did not end in EOS".to_owned());
     }
 
     Ok(())
@@ -272,10 +258,15 @@ pub async fn transcribe(
     cache: &neunote_models::Cache,
 ) -> Result<Vec<NoteEvent>, String> {
     if !cache.is_installed(size) || !model_path.exists() {
-        return Err(UnavailableEngine::missing_model(model_path).reason);
+        return Err(format!(
+            "no verified {} model at {}.\nRun `neunote models fetch --size {}` first.",
+            size.as_str(),
+            model_path.display(),
+            size.as_str()
+        ));
     }
 
-    let mut engine = UnavailableEngine::missing_engine();
+    let mut engine = crate::muscriptor::Muscriptor::load(model_path)?;
     let cancel = AtomicBool::new(false);
 
     match transcribe_with(
@@ -309,12 +300,13 @@ pub async fn transcribe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neunote_types::NoteKey;
+    use neunote_types::{NoteKey, SEGMENT_SAMPLES};
 
     /// An engine that returns scripted token streams, one per chunk.
     struct Scripted {
         segments: Vec<Vec<i32>>,
         prompts: Vec<Vec<i32>>,
+        rows: Vec<Vec<i32>>,
         calls: usize,
     }
 
@@ -323,6 +315,7 @@ mod tests {
             Self {
                 segments,
                 prompts: Vec::new(),
+                rows: Vec::new(),
                 calls: 0,
             }
         }
@@ -333,14 +326,18 @@ mod tests {
             SEGMENT_SAMPLES
         }
 
-        fn generate(&mut self, _: &[f32], prompt: &[i32], _: &[i32]) -> Result<Vec<i32>, String> {
-            self.prompts.push(prompt.to_vec());
+        fn generate(&mut self, request: ChunkRequest<'_>) -> Result<Chunk, String> {
+            self.prompts.push(request.prompt.to_vec());
+            self.rows.push(request.instrument_rows.to_vec());
             // A conforming engine returns the forced prompt inside the stream,
             // then its own tokens.
-            let mut tokens = prompt.to_vec();
+            let mut tokens = request.prompt.to_vec();
             tokens.extend(self.segments.get(self.calls).cloned().unwrap_or_default());
             self.calls += 1;
-            Ok(tokens)
+            Ok(Chunk {
+                tokens,
+                stop: Stop::Eos,
+            })
         }
     }
 
@@ -452,20 +449,24 @@ mod tests {
                 SEGMENT_SAMPLES
             }
 
-            fn generate(&mut self, _: &[f32], _: &[i32], _: &[i32]) -> Result<Vec<i32>, String> {
+            fn generate(&mut self, _: ChunkRequest<'_>) -> Result<Chunk, String> {
                 self.calls += 1;
-                if self.calls == 1 {
-                    Ok(vec![
+                let tokens = if self.calls == 1 {
+                    vec![
                         TIE,
                         shift(10),
                         program(0),
                         velocity(true),
                         pitch(60),
                         EOS,
-                    ])
+                    ]
                 } else {
-                    Ok(vec![EOS])
-                }
+                    vec![EOS]
+                };
+                Ok(Chunk {
+                    tokens,
+                    stop: Stop::Eos,
+                })
             }
         }
 
@@ -659,28 +660,88 @@ mod tests {
     }
 
     #[test]
-    fn the_unavailable_engine_says_so_rather_than_returning_silence() {
-        let mut engine = UnavailableEngine::missing_engine();
-        let error = engine
-            .generate(&[], &[], &[])
-            .expect_err("the engine is not built");
-        assert!(error.contains("not built yet"), "got {error}");
-    }
-
-    #[test]
-    fn a_missing_model_names_the_path() {
-        let error = UnavailableEngine::missing_model(Path::new("/tmp/nope.gguf")).reason;
-        assert!(error.contains("/tmp/nope.gguf"), "got {error}");
-        assert!(error.contains("models fetch"), "got {error}");
-    }
-
-    #[test]
-    fn token_validation_catches_a_missing_eos() {
-        assert!(validate_tokens(&[TIE, program(0), pitch(60)]).is_err());
-        assert!(validate_tokens(&[TIE, EOS]).is_ok());
+    fn token_validation_only_cares_that_the_ids_are_real() {
+        // A stream with no EOS is legitimate: the reference stops at its token
+        // or context budget without one, and manufacturing an EOS would hide
+        // that. `Stop` is where the distinction lives.
+        assert!(validate_tokens(&[TIE, program(0), pitch(60)]).is_ok());
         assert!(validate_tokens(&[TIE, -1, EOS]).is_err());
         assert!(validate_tokens(&[TIE, NUM_TOKENS, EOS]).is_err());
         assert!(validate_tokens(&[TIE, NUM_TOKENS - 1, EOS]).is_ok());
+    }
+
+    #[test]
+    fn a_chunk_that_runs_out_of_budget_still_decodes() {
+        struct Budget;
+        impl Engine for Budget {
+            fn segment_samples(&self) -> usize {
+                SEGMENT_SAMPLES
+            }
+            fn generate(&mut self, request: ChunkRequest<'_>) -> Result<Chunk, String> {
+                Ok(Chunk {
+                    tokens: request.prompt.iter().copied().chain([TIE, shift(10), program(0), velocity(true), pitch(60)]).collect(),
+                    stop: Stop::Budget,
+                })
+            }
+        }
+
+        let cancel = AtomicBool::new(false);
+        let notes = match transcribe_with(
+            &mut Budget,
+            &audio(1),
+            ModelSize::Medium,
+            &[],
+            true,
+            &cancel,
+            |_| {},
+        )
+        .unwrap()
+        {
+            Outcome::Finished(notes) => notes,
+            Outcome::Cancelled => panic!("unexpectedly cancelled"),
+        };
+
+        assert_eq!(notes.len(), 1, "a stream without EOS is not an error");
+    }
+
+    #[test]
+    fn the_selection_reaches_the_engine_as_conditioning_rows() {
+        let mut engine = Scripted::new(vec![vec![TIE, EOS]]);
+        let cancel = AtomicBool::new(false);
+        transcribe_with(
+            &mut engine,
+            &audio(1),
+            ModelSize::Medium,
+            &[GroupId(0), GroupId(7)],
+            true,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+
+        // Group g conditions on row g + 2, so piano and bass are rows 2 and 9.
+        assert_eq!(engine.rows[0], vec![2, 9]);
+    }
+
+    #[test]
+    fn an_empty_selection_asks_for_the_unconditional_path() {
+        let mut engine = Scripted::new(vec![vec![TIE, EOS]]);
+        let cancel = AtomicBool::new(false);
+        transcribe_with(
+            &mut engine,
+            &audio(1),
+            ModelSize::Medium,
+            &[],
+            true,
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+
+        assert!(
+            engine.rows[0].is_empty(),
+            "no selection is not a conditioning row list; the engine draws the null row"
+        );
     }
 
     #[test]
@@ -721,29 +782,6 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("outside the vocabulary"), "got {error}");
-    }
-
-    #[test]
-    fn a_chunk_without_eos_is_an_error_rather_than_silence() {
-        let mut engine = Scripted::new(vec![vec![
-            TIE,
-            shift(10),
-            program(0),
-            velocity(true),
-            pitch(60),
-        ]]);
-        let cancel = AtomicBool::new(false);
-        let error = transcribe_with(
-            &mut engine,
-            &audio(1),
-            ModelSize::Medium,
-            &[],
-            true,
-            &cancel,
-            |_| {},
-        )
-        .unwrap_err();
-        assert!(error.contains("EOS"), "got {error}");
     }
 
     #[test]

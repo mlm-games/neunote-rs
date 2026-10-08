@@ -1,0 +1,11 @@
+[package]
+name = "neunote-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+half = "2.7"
+libm = "0.2"
+rayon = "1.11"
+neunote-types = { path = "../neunote-types" }

@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use neunote_cli::pipeline::{self, Engine, Outcome};
+use neunote_cli::pipeline::{self, Chunk, ChunkRequest, Engine, Outcome, Stop};
 use neunote_types::{DRUM_PROGRAM, GroupId, ModelSize, NoteEvent, SEGMENT_SAMPLES};
 
 const TIE: i32 = neunote_tokenizer::TIE_FIRST_ID;
@@ -55,19 +55,17 @@ impl Engine for Scripted {
         self.segment
     }
 
-    fn generate(
-        &mut self,
-        samples: &[f32],
-        prompt: &[i32],
-        _forbidden: &[i32],
-    ) -> Result<Vec<i32>, String> {
+    fn generate(&mut self, request: ChunkRequest<'_>) -> Result<Chunk, String> {
         // The pipeline must hand over exactly one padded chunk every time.
-        assert_eq!(samples.len(), self.segment, "chunk length");
+        assert_eq!(request.samples.len(), self.segment, "chunk length");
         // A conforming engine returns the forced prompt inside its own stream.
-        let mut tokens = prompt.to_vec();
+        let mut tokens = request.prompt.to_vec();
         tokens.extend(self.chunks.get(self.next).cloned().unwrap_or_default());
         self.next += 1;
-        Ok(tokens)
+        Ok(Chunk {
+            tokens,
+            stop: Stop::Eos,
+        })
     }
 }
 
@@ -321,7 +319,7 @@ fn a_model_error_stops_the_run_without_a_result() {
             SEGMENT_SAMPLES
         }
 
-        fn generate(&mut self, _: &[f32], _: &[i32], _: &[i32]) -> Result<Vec<i32>, String> {
+        fn generate(&mut self, _: ChunkRequest<'_>) -> Result<Chunk, String> {
             Err("out of memory".to_owned())
         }
     }
@@ -417,17 +415,25 @@ fn a_long_file_scales_to_many_chunks() {
 }
 
 #[test]
-fn the_unavailable_engine_is_the_default_and_explains_itself() {
-    let mut engine = pipeline::UnavailableEngine::missing_engine();
-    let error = engine.generate(&[], &[], &[]).unwrap_err();
-    assert!(error.contains("not built yet"), "got {error}");
-    assert!(error.contains("models fetch"), "the fix should be named");
-}
-
-#[test]
-fn a_model_path_that_does_not_exist_is_reported() {
-    let mut engine = pipeline::UnavailableEngine::missing_model(Path::new("/nowhere/x.gguf"));
-    let error = engine.generate(&[], &[], &[]).unwrap_err();
+fn a_checkpoint_that_cannot_be_loaded_names_its_path() {
+    // The engine is built now, so the failure a user sees is a real one: the
+    // file is missing, unreadable, or not a checkpoint. Either way the path has
+    // to be in the message.
+    let error = match neunote_cli::muscriptor::Muscriptor::load(Path::new("/nowhere/x.gguf")) {
+        Err(error) => error,
+        Ok(_) => panic!("a path that does not exist must not load"),
+    };
     assert!(error.contains("/nowhere/x.gguf"), "got {error}");
 }
 
+#[test]
+fn a_file_that_is_not_a_checkpoint_is_refused_rather_than_read_as_one() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), b"not a checkpoint").unwrap();
+
+    let error = match neunote_cli::muscriptor::Muscriptor::load(file.path()) {
+        Err(error) => error,
+        Ok(_) => panic!("a file that is not a checkpoint must not load"),
+    };
+    assert!(error.contains("checkpoint") || error.contains("GGUF"), "got {error}");
+}

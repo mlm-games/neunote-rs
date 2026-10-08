@@ -85,12 +85,14 @@ fn models_verify_reports_what_is_missing_without_failing() {
 }
 
 #[test]
-fn transcribing_says_the_engine_is_missing_rather_than_writing_an_empty_file() {
+fn transcribing_refuses_an_unreadable_model_rather_than_writing_an_empty_file() {
     let models = scratch("no-engine");
     let out = models.join("out.mid");
 
-    // Stand in for a verified install so the run reaches the engine and fails
-    // there, rather than stopping at the missing model.
+    // A file the right size but not a checkpoint. Standing in for a verified
+    // install lets the run reach the engine and fail there, rather than stopping
+    // at the missing model -- and the failure has to name what is actually
+    // wrong rather than something plausible.
     let model = models.join("muscriptor-medium-f16.gguf");
     std::fs::write(
         &model,
@@ -108,19 +110,16 @@ fn transcribing_says_the_engine_is_missing_rather_than_writing_an_empty_file() {
         &models,
     );
 
-    assert!(!ok, "a missing engine is an error, not a silent success");
+    assert!(!ok, "an unreadable checkpoint is an error, not a silent success");
     assert!(
-        stderr.contains("not built yet"),
+        stderr.contains("GGUF") || stderr.contains("checkpoint"),
         "the error must name the real cause, got: {stderr}"
     );
     assert!(
         !out.exists(),
         "no MIDI file may be written when transcription did not run"
     );
-
-    let _ = std::fs::remove_file(&model);
 }
-
 #[test]
 fn transcribing_reports_the_audio_it_read() {
     let models = scratch("audio-report");
