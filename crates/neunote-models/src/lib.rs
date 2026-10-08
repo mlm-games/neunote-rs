@@ -186,6 +186,14 @@ pub struct Cache {
     dir: PathBuf,
 }
 
+/// The cache the process uses by default, honouring `NEUNOTE_MODELS_DIR`.
+pub fn cache() -> Cache {
+    match std::env::var_os("NEUNOTE_MODELS_DIR") {
+        Some(dir) => Cache::new(dir),
+        None => Cache::platform_default(),
+    }
+}
+
 impl Cache {
     /// The platform's data directory: XDG on Linux, Application Support on
     /// macOS, AppData on Windows.

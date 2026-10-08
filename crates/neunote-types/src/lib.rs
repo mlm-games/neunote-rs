@@ -20,10 +20,31 @@ pub const FRAME_RATE: i32 = 100;
 /// Greedy decoding stops here, forced prompt included.
 pub const MAX_TOKENS_PER_CHUNK: usize = 2_000;
 
-/// `MT3_FULL_PLUS` has 1393 tokens. `medium` and `large` carry a card of 1395
-/// but `logits[1393:]` is forced to -inf, so 1393 and 1394 can never be
-/// produced (`Hparams::logit_mask_start`).
+/// `MT3_FULL_PLUS` has 1393 tokens, and that is the size of the vocabulary
+/// itself: the token ids a model can produce.
 pub const VOCAB_ACTIVE: usize = 1_393;
+
+/// The embedding table's row count, which is the vocabulary size plus the BOS
+/// row. `small` has a card of 1393; `medium` and `large` carry 1395.
+pub const fn card_for(size: ModelSize) -> usize {
+    match size {
+        ModelSize::Small => VOCAB_ACTIVE,
+        ModelSize::Medium | ModelSize::Large => VOCAB_ACTIVE + 2,
+    }
+}
+
+/// `initial_token_id = card` is the BOS token fed at prefill.
+pub const fn bos_id(size: ModelSize) -> u32 {
+    card_for(size) as u32
+}
+
+/// Token ids at or above the active vocabulary, which `logits[1393:]` forces to
+/// negative infinity (`Hparams::logit_mask_start`). For `medium` and `large`
+/// that is ids 1393 and 1394, which their larger embedding table could
+/// otherwise have produced.
+pub fn logits_mask_start(size: ModelSize) -> std::ops::Range<u32> {
+    VOCAB_ACTIVE as u32..card_for(size) as u32
+}
 
 /// The reference writes every note at MIDI velocity 100; the model predicts no
 /// dynamics.
@@ -390,6 +411,24 @@ mod tests {
         assert_eq!(GroupId::for_program(128), None);
         assert_eq!(GroupId::for_program(129), None);
         assert_eq!(instrument_label(128), "program_128");
+    }
+
+    #[test]
+    fn the_embedding_table_carries_a_bos_row() {
+        // The card is the vocabulary size plus the row BOS lives in.
+        assert_eq!(card_for(ModelSize::Small), 1_393);
+        assert_eq!(card_for(ModelSize::Medium), 1_395);
+        assert_eq!(card_for(ModelSize::Large), 1_395);
+
+        assert_eq!(bos_id(ModelSize::Small), 1_393);
+        assert_eq!(bos_id(ModelSize::Medium), 1_395);
+    }
+
+    #[test]
+    fn ids_past_the_active_vocabulary_are_masked() {
+        assert_eq!(logits_mask_start(ModelSize::Small), 1_393..1_393);
+        assert_eq!(logits_mask_start(ModelSize::Medium), 1_393..1_395);
+        assert_eq!(logits_mask_start(ModelSize::Large), 1_393..1_395);
     }
 
     #[test]

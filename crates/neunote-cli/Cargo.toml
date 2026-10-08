@@ -1,0 +1,26 @@
+[package]
+name = "neunote-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "neunote_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neunote"
+path = "src/main.rs"
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+neunote-tokenizer = { path = "../neunote-tokenizer" }
+neunote-audio = { path = "../neunote-audio" }
+neunote-midi = { path = "../neunote-midi" }
+neunote-models = { path = "../neunote-models" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync"] }
+
+[dev-dependencies]
+midly = "0.5"
+tempfile = "3"

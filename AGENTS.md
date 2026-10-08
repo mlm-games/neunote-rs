@@ -25,9 +25,18 @@ from prose. Where a constant is quoted, it was read off the reference source.
 |---|---|---|
 | `neunote-types` | Notes, instrument groups, constants | no |
 | `neunote-tokenizer` | MT3 vocabulary, decode state machine, note assembly | no |
+| `neunote-audio` | Decode to mono f32, resample to 16 kHz, chunking, peaks | no |
+| `neunote-midi` | One track per instrument, drums on channel 10 | no |
+| `neunote-models` | Manifest pins, resumable download, digest verification | no |
+| `neunote-cli` | The pipeline around the engine, and the `neunote` binary | no |
 | `neunote-core` | The legacy Basic Pitch pipeline. Being replaced. | yes (JSON) |
 | `neunote-engine` | **not yet written.** Mel front-end, transformer, greedy decode. | yes |
-| `neunote-audio`, `neunote-midi`, `neunote-models`, `neunote-cli` | **not yet written.** | — |
+
+Everything except `neunote-engine` is done. `neunote-cli` defines the seam the
+engine plugs into -- `pipeline::Engine` -- and drives everything around it, so
+adding the engine is an implementation of one trait rather than a rewrite.
+`neunote transcribe` therefore reads and resamples the audio, then fails with
+an explanation instead of writing an empty MIDI file.
 
 ## Hard constraints
 
@@ -87,9 +96,11 @@ checksum fetched from the repo.
 ## Testing
 
 ```bash
-cargo test -p neunote-types -p neunote-tokenizer
-cargo clippy -p neunote-types -p neunote-tokenizer --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+Only `neunote-core` has no tests; it is being deleted.
 
 `crates/neunote-tokenizer/tests/reference_vectors.rs` replays all 17 vectors in
 `testdata/vectors/note_vectors.json`, vendored from the reference. Passing means
@@ -99,6 +110,11 @@ cheapest possible check that a change is safe.
 
 `testdata/vectors/tables.json` is the generated instrument-group table the
 reference asserts its own `instrument_groups.inc` against.
+
+`testdata/audio/fixture_3chunks_16k.wav` is the reference's own 15 s fixture.
+`neunote-audio` decodes it to check the sample rate, length and that each chunk
+carries signal; `neunote-cli` runs the binary against it for the end-to-end
+tests.
 
 The engine has no tests yet, and cannot until there is something to compare it
 to. The ladder, in order:
@@ -111,6 +127,12 @@ to. The ladder, in order:
 
 Steps 1 and 2 are where the architecture details above get proven. Do not claim
 parity before step 3 passes.
+
+The engine implements `neunote_cli::pipeline::Engine`. Its `generate` receives
+one zero-padded chunk, the forced tie prologue (empty on the first chunk, and
+empty when forcing is off), and the forbidden-token ids. It must return the
+generated tokens *including* EOS and including the forced prompt, because the
+pipeline replays the prompt through the tracker separately.
 
 ## Licence
 
