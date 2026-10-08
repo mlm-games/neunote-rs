@@ -4,41 +4,25 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[lib]
-name = "neunote_cli"
-path = "src/lib.rs"
-
-# A terminal binary on wasm: no argv, no filesystem, and a browser already has
-# its own way to read a file and show a MIDI blob. The library is what a host
-# embeds.
+# The terminal binary. A wasm host embeds `neunote-pipeline` instead: no argv,
+# no filesystem, and a browser already has its own way to read a file and show
+# a MIDI blob.
 [[bin]]
 name = "neunote"
 path = "src/main.rs"
-required-features = ["cli"]
-
-[features]
-default = ["cli"]
-cli = ["dep:clap", "dep:tokio", "dep:neunote-models"]
 
 [dependencies]
+neunote-pipeline = { path = "../neunote-pipeline" }
 neunote-types = { path = "../neunote-types" }
-neunote-tokenizer = { path = "../neunote-tokenizer" }
 neunote-audio = { path = "../neunote-audio" }
 neunote-midi = { path = "../neunote-midi" }
-neunote-engine = { path = "../neunote-engine" }
 
-# Argument parsing, the downloader and the multi-threaded runtime are only
-# reachable from the terminal binary.
-clap = { version = "4", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = [
     "fs",
     "macros",
     "rt-multi-thread",
     "signal",
     "sync",
-], optional = true }
-neunote-models = { path = "../neunote-models", optional = true }
-
-[dev-dependencies]
-midly = "0.5"
-tempfile = "3"
+] }
+neunote-models = { path = "../neunote-models" }

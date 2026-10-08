@@ -11,12 +11,13 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::AtomicBool;
 
 use clap::{Parser, Subcommand};
 
 use neunote_types::{GroupId, ModelSize, NoteEvent};
 
-use neunote_cli::pipeline;
+use neunote_pipeline::{muscriptor::Muscriptor, transcribe_with, Outcome};
 
 #[derive(Parser)]
 #[command(
@@ -148,11 +149,7 @@ fn run(command: Command, cache: &neunote_models::Cache) -> Result<(), String> {
             Ok(())
         }
 
-        Command::Transcribe(args) => tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| error.to_string())?
-            .block_on(transcribe(args, cache)),
+        Command::Transcribe(args) => transcribe(args, cache),
     }
 }
 
@@ -302,7 +299,57 @@ fn tokio_runtime() -> Result<tokio::runtime::Runtime, String> {
         .map_err(|error| error.to_string())
 }
 
-async fn transcribe(args: TranscribeArgs, cache: &neunote_models::Cache) -> Result<(), String> {
+/// Load the weights the cache has verified and run the pipeline over decoded
+/// audio, reporting chunk progress on stderr.
+fn transcribe_notes(
+    mono: &[f32],
+    model_path: &Path,
+    size: ModelSize,
+    instruments: &[GroupId],
+    prelude_forcing: bool,
+    cache: &neunote_models::Cache,
+) -> Result<Vec<NoteEvent>, String> {
+    if !cache.is_installed(size) || !model_path.exists() {
+        return Err(format!(
+            "no verified {} model at {}.\nRun `neunote models fetch --size {}` first.",
+            size.as_str(),
+            model_path.display(),
+            size.as_str()
+        ));
+    }
+
+    let mut engine = Muscriptor::load(model_path)?;
+    let cancel = AtomicBool::new(false);
+
+    match transcribe_with(
+        &mut engine,
+        mono,
+        size,
+        instruments,
+        prelude_forcing,
+        &cancel,
+        |progress| {
+            eprint!(
+                "\r  chunk {:>3}/{}  {:>3.0}%  {:.0}s final  ",
+                progress.chunks_done,
+                progress.chunks_total,
+                progress.fraction() * 100.0,
+                progress.finalized_through
+            );
+        },
+    )? {
+        Outcome::Finished(notes) => {
+            eprintln!();
+            Ok(notes)
+        }
+        Outcome::Cancelled => {
+            eprintln!();
+            Err("cancelled".to_owned())
+        }
+    }
+}
+
+fn transcribe(args: TranscribeArgs, cache: &neunote_models::Cache) -> Result<(), String> {
     let instruments = match &args.instruments {
         Some(names) => parse_instruments(names)?,
         None => Vec::new(),
@@ -327,15 +374,14 @@ async fn transcribe(args: TranscribeArgs, cache: &neunote_models::Cache) -> Resu
 
     let size = ModelSize::from(args.model);
     let model_path = cache.model_path(size);
-    let notes = pipeline::transcribe(
+    let notes = transcribe_notes(
         &mono,
         &model_path,
         size,
         &instruments,
         !args.no_prelude_forcing,
         cache,
-    )
-    .await?;
+    )?;
 
     let output = args
         .output

@@ -842,14 +842,11 @@ name = "neunote-cli"
 version = "0.2.0"
 dependencies = [
  "clap",
- "midly",
  "neunote-audio",
- "neunote-engine",
  "neunote-midi",
  "neunote-models",
- "neunote-tokenizer",
+ "neunote-pipeline",
  "neunote-types",
- "tempfile",
  "tokio",
 ]
 
@@ -886,6 +883,18 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "neunote-pipeline"
+version = "0.2.0"
+dependencies = [
+ "midly",
+ "neunote-engine",
+ "neunote-midi",
+ "neunote-tokenizer",
+ "neunote-types",
+ "tempfile",
 ]
 
 [[package]]

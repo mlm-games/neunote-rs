@@ -1,0 +1,15 @@
+[package]
+name = "neunote-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neunote-types = { path = "../neunote-types" }
+neunote-tokenizer = { path = "../neunote-tokenizer" }
+neunote-engine = { path = "../neunote-engine" }
+
+[dev-dependencies]
+neunote-midi = { path = "../neunote-midi" }
+midly = "0.5"
+tempfile = "3"

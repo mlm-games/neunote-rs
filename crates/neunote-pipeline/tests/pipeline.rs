@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use neunote_cli::pipeline::{self, Chunk, ChunkRequest, Engine, Outcome, Stop};
+use neunote_pipeline::{self as pipeline, Chunk, ChunkRequest, Engine, Outcome, Stop};
 use neunote_types::{DRUM_PROGRAM, GroupId, ModelSize, NoteEvent, SEGMENT_SAMPLES};
 
 const TIE: i32 = neunote_tokenizer::TIE_FIRST_ID;
@@ -419,7 +419,7 @@ fn a_checkpoint_that_cannot_be_loaded_names_its_path() {
     // The engine is built now, so the failure a user sees is a real one: the
     // file is missing, unreadable, or not a checkpoint. Either way the path has
     // to be in the message.
-    let error = match neunote_cli::muscriptor::Muscriptor::load(Path::new("/nowhere/x.gguf")) {
+    let error = match neunote_pipeline::muscriptor::Muscriptor::load(Path::new("/nowhere/x.gguf")) {
         Err(error) => error,
         Ok(_) => panic!("a path that does not exist must not load"),
     };
@@ -431,7 +431,7 @@ fn a_file_that_is_not_a_checkpoint_is_refused_rather_than_read_as_one() {
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), b"not a checkpoint").unwrap();
 
-    let error = match neunote_cli::muscriptor::Muscriptor::load(file.path()) {
+    let error = match neunote_pipeline::muscriptor::Muscriptor::load(file.path()) {
         Err(error) => error,
         Ok(_) => panic!("a file that is not a checkpoint must not load"),
     };

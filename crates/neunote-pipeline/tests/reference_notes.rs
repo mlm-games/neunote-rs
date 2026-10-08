@@ -11,8 +11,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use neunote_cli::muscriptor::Muscriptor;
-use neunote_cli::pipeline::{self, Outcome};
+use neunote_pipeline::muscriptor::Muscriptor;
+use neunote_pipeline::{self as pipeline, Outcome};
 use neunote_types::{ModelSize, NoteEvent};
 
 fn workspace() -> PathBuf {

@@ -2,11 +2,17 @@
 
 //! The transcription pipeline: chunking, prelude forcing, note assembly.
 //!
-//! The engine itself is not built yet, so this module defines the seam it
-//! will plug into -- [`Engine`] -- and drives everything around it. That means
-//! the chunk loop, the cross-chunk state machine, instrument conditioning and
-//! note assembly are all real and tested now, and adding the engine becomes
-//! an implementation of one trait rather than a rewrite of this file.
+//! An engine produces token ids for one chunk at a time, so this crate
+//! defines the seam it plugs into -- [`Engine`] -- and drives everything
+//! around it: the chunk loop, the cross-chunk state machine, instrument
+//! conditioning and note assembly. [`muscriptor`] is the MuScriptor
+//! implementation of that seam, the one that runs real inference.
+//!
+//! Everything here is embeddable: the command line tool layers file decoding,
+//! weight downloading and MIDI export on top, from outside this crate.
+
+pub mod muscriptor;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use neunote_tokenizer::{
@@ -245,60 +251,6 @@ pub fn forbidden_for(size: ModelSize, instruments: &[GroupId]) -> Result<Vec<i32
         ids.dedup();
     }
     Ok(ids)
-}
-
-/// Entry point for the command line tool.
-///
-/// Checks a cache directory for the weights and reports progress on stderr, so
-/// it stays behind the `cli` feature: a wasm host already has the weights and
-/// drives [`transcribe_with`] itself.
-#[cfg(feature = "cli")]
-pub async fn transcribe(
-    mono: &[f32],
-    model_path: &std::path::Path,
-    size: ModelSize,
-    instruments: &[GroupId],
-    prelude_forcing: bool,
-    cache: &neunote_models::Cache,
-) -> Result<Vec<NoteEvent>, String> {
-    if !cache.is_installed(size) || !model_path.exists() {
-        return Err(format!(
-            "no verified {} model at {}.\nRun `neunote models fetch --size {}` first.",
-            size.as_str(),
-            model_path.display(),
-            size.as_str()
-        ));
-    }
-
-    let mut engine = crate::muscriptor::Muscriptor::load(model_path)?;
-    let cancel = AtomicBool::new(false);
-
-    match transcribe_with(
-        &mut engine,
-        mono,
-        size,
-        instruments,
-        prelude_forcing,
-        &cancel,
-        |progress| {
-            eprint!(
-                "\r  chunk {:>3}/{}  {:>3.0}%  {:.0}s final  ",
-                progress.chunks_done,
-                progress.chunks_total,
-                progress.fraction() * 100.0,
-                progress.finalized_through
-            );
-        },
-    )? {
-        Outcome::Finished(notes) => {
-            eprintln!();
-            Ok(notes)
-        }
-        Outcome::Cancelled => {
-            eprintln!();
-            Err("cancelled".to_owned())
-        }
-    }
 }
 
 #[cfg(test)]

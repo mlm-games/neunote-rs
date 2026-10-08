@@ -2,7 +2,7 @@
 
 `dump_refs.cpp` regenerates `testdata/refs/*.bin`, the golden tensors the test
 ladder in `crates/neunote-engine/tests/ladder.rs` and
-`crates/neunote-cli/tests/reference_notes.rs` compare against.
+`crates/neunote-pipeline/tests/reference_notes.rs` compare against.
 
 It is the only C++ in this repository and it is **not part of the build**. It
 drives `muscriptor.cpp`'s public API from outside, so the numbers it produces are

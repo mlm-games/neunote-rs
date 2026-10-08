@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! The MuScriptor engine behind [`crate::pipeline::Engine`].
+//! The MuScriptor engine behind [`crate::Engine`].
 //!
 //! Everything around the model -- chunking, prelude forcing, note assembly,
 //! MIDI export -- is engine-independent and already tested. This is the one
@@ -11,7 +11,7 @@ use std::path::Path;
 use neunote_engine::{Chunk as EngineChunk, Model, Stop as EngineStop};
 use neunote_types::{MAX_TOKENS_PER_CHUNK, SEGMENT_SAMPLES};
 
-use crate::pipeline::{Chunk, ChunkRequest, Engine};
+use crate::{Chunk, ChunkRequest, Engine};
 
 /// One model instance serves one job at a time.
 ///
@@ -56,8 +56,8 @@ impl Engine for Muscriptor {
         Ok(Chunk {
             tokens: chunk.tokens,
             stop: match chunk.stop {
-                EngineStop::Eos => crate::pipeline::Stop::Eos,
-                EngineStop::Budget => crate::pipeline::Stop::Budget,
+                EngineStop::Eos => crate::Stop::Eos,
+                EngineStop::Budget => crate::Stop::Budget,
             },
         })
     }
