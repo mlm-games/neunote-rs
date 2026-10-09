@@ -18,11 +18,12 @@ pub(crate) fn shell() -> Shell {
         resolve_weights: Rc::new(crate::web_weights::resolve),
 
         fetch_weights: Rc::new(|size, accepted, progress, done| {
-            if accepted {
-                crate::web_weights::record_acceptance();
-            }
-            crate::web_weights::fetch(size, progress, done)
+            crate::web_weights::fetch(size, accepted, progress, done)
         }),
+
+        licence_accepted: Rc::new(crate::web_weights::licence_accepted),
+
+        set_licence_accepted: Rc::new(crate::web_weights::record_acceptance),
 
         pick_audio: Rc::new(|done| {
             let picked = {

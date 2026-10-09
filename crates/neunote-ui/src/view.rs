@@ -60,6 +60,11 @@ pub struct Shell {
     /// Fetch a checkpoint into the host's own store. `accepted` is the user's
     /// answer on the weights' licence; this host enforces it, not the view.
     pub fetch_weights: Rc<dyn Fn(ModelSize, bool, Progress, Bytes)>,
+    /// Whether this host already holds the user's answer on the weights'
+    /// licence, so the switch starts from it instead of from nothing.
+    pub licence_accepted: Rc<dyn Fn() -> bool>,
+    /// Record that answer. `false` withdraws it where the host can forget.
+    pub set_licence_accepted: Rc<dyn Fn(bool)>,
     pub save_midi: Saver,
 }
 
@@ -112,7 +117,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let prelude = remember(|| signal(true));
     let instruments = remember(|| signal(String::new()));
     let hidden = remember(|| signal(Rc::new(HashSet::<u16>::new())));
-    let licence = remember(|| signal(false));
+    let licence = remember(|| signal((shell.licence_accepted)()));
     let viewport = remember(|| signal(Viewport::default()));
     let roll_size = remember_with_key("neunote:roll-size", || signal(Vec2 { x: 0.0, y: 0.0 }));
     let quantize = remember(|| signal(Quantize::default()));
@@ -696,7 +701,11 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                     licence.get(),
                     {
                         let licence = licence.clone();
-                        move |on| licence.set(on)
+                        let record = shell.set_licence_accepted.clone();
+                        move |on| {
+                            licence.set(on);
+                            record(on);
+                        }
                     },
                     SwitchConfig::default(),
                 ),

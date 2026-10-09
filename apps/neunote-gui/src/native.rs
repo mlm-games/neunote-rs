@@ -36,6 +36,15 @@ pub(crate) fn shell() -> Shell {
             )));
         }),
 
+        // The same marker file the CLI writes, so one answer covers both.
+        licence_accepted: Rc::new(|| neunote_models::cache().licence_accepted()),
+
+        set_licence_accepted: Rc::new(|accepted| {
+            if accepted {
+                let _ = neunote_models::cache().accept_licence();
+            }
+        }),
+
         pick_audio: Rc::new(|done| {
             let picked = rfd::FileDialog::new()
                 .add_filter("Audio", AUDIO)

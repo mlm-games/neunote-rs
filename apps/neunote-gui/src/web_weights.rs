@@ -32,9 +32,15 @@ pub(crate) fn licence_accepted() -> bool {
         .is_some()
 }
 
-pub(crate) fn record_acceptance() {
-    if let Some(storage) = window_storage() {
+pub(crate) fn record_acceptance(accepted: bool) {
+    let Some(storage) = window_storage() else {
+        return;
+    };
+
+    if accepted {
         let _ = storage.set_item(ACCEPTED_KEY, neunote_models::WEIGHTS_LICENSE);
+    } else {
+        let _ = storage.remove_item(ACCEPTED_KEY);
     }
 }
 
@@ -58,7 +64,11 @@ pub(crate) fn resolve(size: ModelSize, done: Resolved) {
 }
 
 /// Fetch the checkpoint, check it against the pin, and keep it in OPFS.
-pub(crate) fn fetch(size: ModelSize, progress: Progress, done: Resolved) {
+///
+/// `accepted` is the switch as it stands right now, not what the store happens
+/// to remember: a browser with storage blocked must still be able to download
+/// once the user says yes.
+pub(crate) fn fetch(size: ModelSize, accepted: bool, progress: Progress, done: Resolved) {
     let entry = manifest::entry(size);
 
     if entry.num_bytes > BROWSER_LIMIT {
@@ -70,7 +80,7 @@ pub(crate) fn fetch(size: ModelSize, progress: Progress, done: Resolved) {
         return;
     }
 
-    if !licence_accepted() {
+    if !accepted {
         done(Err(format!(
             "the weights are {} -- accept that before downloading.",
             neunote_models::WEIGHTS_LICENSE
