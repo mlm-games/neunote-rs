@@ -19,6 +19,7 @@ use repose_material::material3::{
     RadioButton, RadioButtonConfig, SegmentConfig, SegmentedButton, SegmentedButtonConfig, Slider,
     SliderConfig, Switch, SwitchConfig, TextButton, TextField, TextFieldConfig,
 };
+use repose_material::{Icon, Symbol, material_symbols};
 use repose_ui::*;
 use web_time::{Duration, Instant};
 
@@ -27,6 +28,24 @@ use crate::job::{Job, Message, Weights};
 use crate::quantize::{Division, NOTE_NAMES, Quantize, Scale, Snap};
 use crate::roll::{self, Viewport};
 use crate::{piano_roll, tracks};
+
+// Codepoints from the bundled Material Symbols Outlined face, for the actions
+// whose glyph means the same thing everywhere.
+material_symbols! {
+    FOLDER: '\u{E2C7}',
+    INBOX: '\u{E156}',
+    CLOUD: '\u{F15C}',
+    MUSIC_NOTE: '\u{E405}',
+    CLOSE: '\u{E5CD}',
+    TUNE: '\u{E429}',
+}
+
+/// A control's icon and its label. The icon takes its colour from whatever
+/// content colour is in scope, which is what a button sets for its label.
+fn with_icon(symbol: Symbol, label: impl Into<String>) -> View {
+    Row(Modifier::new().gap(Dp(6.0)).align_items(AlignItems::CENTER))
+        .child((Icon(symbol).size(Sp(16.0)), Text(label.into())))
+}
 
 /// An audio file the host has in hand, named for error messages.
 pub struct LoadedAudio {
@@ -660,13 +679,13 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 Modifier::new(),
                 click(on_open.clone()),
                 ButtonConfig::default(),
-                || Text("Open audio"),
+                || with_icon(Symbols::FOLDER, "Open audio"),
             ),
             TextButton(
                 Modifier::new(),
                 on_choose_weights,
                 ButtonConfig::default(),
-                || Text(weights_label.clone()),
+                || with_icon(Symbols::INBOX, weights_label.clone()),
             ),
             size_row,
             Spacer(),
@@ -715,16 +734,16 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 Modifier::new(),
                 on_download,
                 ButtonConfig::default(),
-                || Text("Download weights"),
+                || with_icon(Symbols::CLOUD, "Download weights"),
             ),
             Button(
                 Modifier::new(),
                 on_transcribe,
                 ButtonConfig::default(),
-                || Text("Transcribe"),
+                || with_icon(Symbols::MUSIC_NOTE, "Transcribe"),
             ),
             TextButton(Modifier::new(), on_cancel, ButtonConfig::default(), || {
-                Text("Cancel")
+                with_icon(Symbols::CLOSE, "Cancel")
             }),
             FilledTonalButton(
                 Modifier::new(),
@@ -913,6 +932,9 @@ fn labelled(label: &str, control: View) -> View {
 fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn Fn()>) -> View {
     let mut children = vec![
         Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
+            Icon(Symbols::TUNE)
+                .size(Sp(16.0))
+                .color(theme().on_surface_variant),
             Switch(
                 on.get(),
                 {
