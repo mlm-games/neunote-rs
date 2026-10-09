@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-
 use neunote_types::ModelSize;
 use neunote_ui::{LoadedAudio, LoadedWeights, Shell, Transport};
 
@@ -66,6 +65,18 @@ pub(crate) fn shell() -> Shell {
                     bytes: std::fs::read(&path).ok()?,
                 })
             }));
+        }),
+
+        copy_midi: Rc::new(|_name, bytes| {
+            // A DAW looks for the MIDI under either name; the last write owns
+            // the clipboard, so the generic one is what stays on it.
+            for mime in ["application/x-midi-event", "audio/midi"] {
+                if let Err(error) = clipawl::blocking::write_as(mime, bytes) {
+                    return Err(format!("the clipboard refused the MIDI: {error}"));
+                }
+            }
+
+            Ok(format!("{} bytes of MIDI on the clipboard", bytes.len()))
         }),
 
         save_midi: Rc::new(|name, bytes| {

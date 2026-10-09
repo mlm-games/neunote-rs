@@ -24,6 +24,12 @@ pub(crate) fn shell() -> Shell {
             crate::web_weights::fetch(size, accepted, progress, done)
         }),
 
+        copy_midi: Rc::new(|_name, _bytes| {
+            Err(String::from(
+                "a browser cannot hand a MIDI file to a DAW -- use Save MIDI",
+            ))
+        }),
+
         licence_accepted: Rc::new(crate::web_weights::licence_accepted),
 
         set_licence_accepted: Rc::new(crate::web_weights::record_acceptance),

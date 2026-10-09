@@ -21,6 +21,7 @@ neunote-models = { path = "../../crates/neunote-models" }
 repose-platform = "0.31"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+clipawl = { version = "0.4", features = ["async-io", "linux-wayland", "linux-x11"] }
 cpal = "0.18"
 env_logger = "0.11"
 log = "0.4"

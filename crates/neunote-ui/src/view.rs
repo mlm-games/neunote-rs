@@ -78,6 +78,7 @@ pub struct LoadedWeights {
 type Picked = Rc<dyn Fn(Option<LoadedAudio>)>;
 type PickedWeights = Rc<dyn Fn(Option<LoadedWeights>)>;
 type Saver = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
+type Copier = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
 type Progress = Rc<dyn Fn(u64, u64)>;
 type Bytes = Rc<dyn Fn(Result<Rc<Vec<u8>>, String>)>;
 
@@ -101,6 +102,10 @@ pub struct Shell {
     /// Record that answer. `false` withdraws it where the host can forget.
     pub set_licence_accepted: Rc<dyn Fn(bool)>,
     pub save_midi: Saver,
+    /// Put the MIDI where another program can take it from: the system
+    /// clipboard, under the MIME types a DAW looks for. A browser's clipboard
+    /// cannot hand a file to a desktop program, so the web host says so.
+    pub copy_midi: Copier,
     /// Playback, where the host has a device to play through. A browser has
     /// none, and the view offers no transport without it.
     pub transport: Option<Rc<dyn Transport>>,
@@ -680,6 +685,35 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         })
     };
 
+    let on_copy = {
+        let source = (*source).clone();
+        let bpm = quantize.clone();
+        let editor = editor.clone();
+        let copy = shell.copy_midi.clone();
+        let status = (*status).clone();
+
+        Rc::new(move || {
+            let notes = editor.notes();
+            if notes.is_empty() {
+                status.set("nothing to copy yet".to_owned());
+                return;
+            }
+
+            let name = source
+                .get()
+                .map(|source| format!("{}.mid", stem(&source.name)))
+                .unwrap_or_else(|| String::from("neunote.mid"));
+
+            match midi_bytes(&notes, bpm.get().bpm) {
+                Ok(bytes) => status.set(match copy(&name, &bytes) {
+                    Ok(answer) => answer,
+                    Err(error) => error,
+                }),
+                Err(error) => status.set(format!("cannot build MIDI: {error}")),
+            }
+        })
+    };
+
     let on_fit = {
         let viewport = (*viewport).clone();
         let roll_size = (*roll_size).clone();
@@ -876,7 +910,12 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         Some(path) => path
             .file_name()
             .map(|name| name.to_string_lossy())
-            .map(|name| name.strip_prefix("muscriptor-").unwrap_or(&name).to_owned())
+            .map(|name| {
+                name.strip_prefix("muscriptor-")
+                    .unwrap_or(&name)
+                    .trim_end_matches(".gguf")
+                    .to_owned()
+            })
             .unwrap_or_else(|| path.display().to_string()),
         None if picked_weights.get().is_some() => String::from("a picked file"),
         None => String::from("no checkpoint"),
@@ -885,23 +924,23 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let overflow = remember(MenuState::new);
     // The three checkpoints as one control: Small, Medium, Large.
     let model = SegmentedButton(
-            &[ModelSize::ALL
-                .into_iter()
-                .position(|candidate| candidate == size.get())
-                .unwrap_or(0)],
-            ModelSize::ALL
-                .into_iter()
-                .map(|candidate| SegmentConfig {
-                    label: candidate.display_name().into(),
-                    icon: None,
-                    on_click: {
-                        let size = (*size).clone();
-                        Rc::new(move || size.set(candidate))
-                    },
-                    enabled: true,
-                    ..Default::default()
-                })
-        .collect(),
+        &[ModelSize::ALL
+            .into_iter()
+            .position(|candidate| candidate == size.get())
+            .unwrap_or(0)],
+        ModelSize::ALL
+            .into_iter()
+            .map(|candidate| SegmentConfig {
+                label: candidate.display_name().into(),
+                icon: None,
+                on_click: {
+                    let size = (*size).clone();
+                    Rc::new(move || size.set(candidate))
+                },
+                enabled: true,
+                ..Default::default()
+            })
+            .collect(),
         SegmentedButtonConfig::default(),
     );
 
@@ -921,6 +960,13 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 Rc::new({
                     let cancel = on_cancel.clone();
                     move || cancel()
+                }) as Rc<dyn Fn()>,
+            ),
+            (
+                "Copy MIDI for a DAW".to_owned(),
+                Rc::new({
+                    let copy = on_copy.clone();
+                    move || copy()
                 }) as Rc<dyn Fn()>,
             ),
             (
@@ -971,11 +1017,11 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         .gap(Dp(6.0))
         .align_items(AlignItems::CENTER))
     .child(vec![
-        TextButton(
-            Modifier::new(),
+        icon_button(
+            Symbols::FOLDER,
+            "Open an audio file",
+            true,
             click(on_open.clone()),
-            ButtonConfig::default(),
-            || with_icon(Symbols::FOLDER, "Open"),
         ),
         TextButton(
             Modifier::new(),

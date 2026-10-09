@@ -720,6 +720,7 @@ dependencies = [
  "log",
  "ndk-context",
  "thiserror 2.0.21",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2445,6 +2446,7 @@ dependencies = [
 name = "neunote-gui"
 version = "0.2.0"
 dependencies = [
+ "clipawl",
  "cpal",
  "env_logger",
  "hex",
