@@ -3597,7 +3597,8 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "repose-app"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e66d809b92e5ddb6d7866fd2d5fc91e5bed5f62396b8ae8058bb1a97ff46541"
 dependencies = [
  "log",
  "repose-core",
@@ -3609,7 +3610,8 @@ dependencies = [
 [[package]]
 name = "repose-canvas"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5f7e51a0ce49604ed43ec28de562f9c6414117c287e605b03ec3f096c860cb5"
 dependencies = [
  "lyon_path",
  "lyon_tessellation",
@@ -3620,7 +3622,8 @@ dependencies = [
 [[package]]
 name = "repose-core"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "248c3e324e9acc862398532551a5b2618e12817866b7808be11df5a33d451bc0"
 dependencies = [
  "accesskit",
  "log",
@@ -3634,7 +3637,8 @@ dependencies = [
 [[package]]
 name = "repose-devtools"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edc2b09276ea8ee847c21967228c77b0baabe4af69eeb4d7a1fe7b4c662e932a"
 dependencies = [
  "repose-core",
  "web-time 1.1.0",
@@ -3644,7 +3648,8 @@ dependencies = [
 [[package]]
 name = "repose-macros"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bb167f06a94016658f62501f049a47d69c9b79c41b738fac1d53ac9489d23c3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3654,7 +3659,8 @@ dependencies = [
 [[package]]
 name = "repose-material"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d02f8054be5ee8049f0190012c535c0626f46a19f78bd70ba75e2f08c7bb29c9"
 dependencies = [
  "repose-canvas",
  "repose-core",
@@ -3667,7 +3673,8 @@ dependencies = [
 [[package]]
 name = "repose-navigation"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa0a06b551e5a93e48c2f9491d59268c0002adc1064d58ba908b5c8a00baec50"
 dependencies = [
  "log",
  "repose-core",
@@ -3679,7 +3686,8 @@ dependencies = [
 [[package]]
 name = "repose-platform"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81190b316691a7475db12eea75e7bd553cc69ab05b97d93d5786edc8a15c83c5"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -3712,7 +3720,8 @@ dependencies = [
 [[package]]
 name = "repose-render-wgpu"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f8eb106f5d4a3f3b52a7ea230804bad6d0c8f2bc827cbafa9db86f37080533f"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3732,7 +3741,8 @@ dependencies = [
 [[package]]
 name = "repose-text"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d17a7592ceef99248d4a455e150a50bd8482a521d6db25edd0e0f777107da1ae"
 dependencies = [
  "font-awl",
  "js-sys",
@@ -3750,7 +3760,8 @@ dependencies = [
 [[package]]
 name = "repose-tree"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1481879eba9ba128c48e8c91b732a485a6c9eb060a6f1d16258235aaa786e0ea"
 dependencies = [
  "log",
  "rapidhash",
@@ -3764,7 +3775,8 @@ dependencies = [
 [[package]]
 name = "repose-ui"
 version = "0.31.17"
-source = "git+https://github.com/mlm-games/repose#7de81a5d46dd11b50fc961f627da1c2a1b7ec679"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91fcf672be4dfe187a395f68e93adec6f03bf3d93cc365d4aeaa63cca4efdb10"
 dependencies = [
  "log",
  "repose-core",
