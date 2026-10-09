@@ -15,6 +15,9 @@ mod piano_roll;
 mod quantize;
 mod roll;
 mod tracks;
+mod waveform;
 mod view;
 
-pub use view::{LoadedAudio, LoadedWeights, Shell, root};
+pub use view::{
+    LoadedAudio, LoadedWeights, Mix, Mode, Shell, TrackMix, Transport, root,
+};

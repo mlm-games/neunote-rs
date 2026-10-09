@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+
 use neunote_types::ModelSize;
-use neunote_ui::{LoadedAudio, LoadedWeights, Shell};
+use neunote_ui::{LoadedAudio, LoadedWeights, Shell, Transport};
 
 const AUDIO: &[&str] = &["wav", "flac", "mp3", "ogg", "oga", "opus", "aac", "m4a"];
 
@@ -18,8 +19,11 @@ pub(crate) fn shell() -> Shell {
         .map(|size| (size, cache.model_path(size)))
         .collect();
 
+    let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
+
     Shell {
         cached_weights: Rc::new(move |size| cached.get(&size).cloned()),
+        transport,
 
         // The desktop reads weights from the cache above, or from a file the
         // user picks; there is nothing for the view to resolve or fetch.

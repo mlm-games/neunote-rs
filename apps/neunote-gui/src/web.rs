@@ -11,6 +11,9 @@ use web_sys::{Blob, File, FileList, HtmlElement, HtmlInputElement, Url};
 
 pub(crate) fn shell() -> Shell {
     Shell {
+        // A browser has no audio device to hand a view through this API, so
+        // there is nothing to play through and no transport control to show.
+        transport: None,
         // A browser tab has no model cache: the checkpoint lives in OPFS, and
         // `resolve_weights` reads it back from there.
         cached_weights: Rc::new(|_size: ModelSize| None),

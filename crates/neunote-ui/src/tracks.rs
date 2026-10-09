@@ -1,14 +1,20 @@
-//! The track list: one row per instrument the transcription found.
+//! The track list: one row per instrument the transcription found, with what
+//! the mix does with it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use neunote_midi::group_by_program;
 use neunote_types::NoteEvent;
 use repose_core::prelude::*;
-use repose_material::material3::{Switch, SwitchConfig};
+use repose_material::material3::{Slider, SliderConfig, Switch, SwitchConfig};
 use repose_ui::scroll::{ScrollArea, remember_scroll_state};
 use repose_ui::*;
+
+use crate::view::{Symbols, TrackMix, icon_button, sized};
+
+/// Writes one track's mix and tells whoever is playing about it.
+type TrackWriter = Rc<dyn Fn(u16, &dyn Fn(&mut TrackMix))>;
 
 /// Group notes the way the MIDI writer does, so the list and the exported file
 /// cannot disagree about what a track is.
@@ -25,7 +31,18 @@ pub(crate) fn rows(notes: &[NoteEvent]) -> Rc<Vec<(u16, String, usize, bool)>> {
 pub(crate) fn view(
     rows: Rc<Vec<(u16, String, usize, bool)>>,
     hidden: Signal<Rc<HashSet<u16>>>,
+    mix: Signal<Rc<HashMap<u16, TrackMix>>>,
+    publish: Rc<dyn Fn()>,
 ) -> View {
+    let store = mix.clone();
+    let announce = publish.clone();
+    let write: TrackWriter = Rc::new(move |program, changed| {
+        let mut next = (*store.get()).clone();
+        changed(next.entry(program).or_default());
+        store.set(Rc::new(next));
+        announce();
+    });
+
     let mut children = Vec::with_capacity(rows.len());
     for (program, name, count, is_drum) in rows.iter() {
         let program = *program;
@@ -34,42 +51,69 @@ pub(crate) fn view(
         } else {
             name.clone()
         };
-        let toggle = hidden.clone();
+        let shown = hidden.clone();
+        let current = mix.get().get(&program).copied().unwrap_or_default();
+
         children.push(
-            Row(Modifier::new().padding(Dp(4.0)).gap(Dp(8.0))).child((
-                Switch(
-                    !toggle.get().contains(&program),
-                    {
-                        let toggle = toggle.clone();
-                        move |visible| {
-                            let mut hidden = (*toggle.get()).clone();
-                            if visible {
-                                hidden.remove(&program);
-                            } else {
-                                hidden.insert(program);
+            Column(Modifier::new().padding(Dp(4.0)).gap(Dp(2.0))).child((
+                Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child((
+                    Switch(
+                        !shown.get().contains(&program),
+                        {
+                            let shown = shown.clone();
+                            move |visible| {
+                                let mut hidden = (*shown.get()).clone();
+                                if visible {
+                                    hidden.remove(&program);
+                                } else {
+                                    hidden.insert(program);
+                                }
+                                shown.set(Rc::new(hidden));
                             }
-                            toggle.set(Rc::new(hidden));
+                        },
+                        SwitchConfig::default(),
+                    ),
+                    Text(label).size(Sp(13.0)),
+                    Spacer(),
+                    Text(format!("{count}"))
+                        .size(Sp(12.0))
+                        .color(theme().on_surface_variant),
+                )),
+                Row(Modifier::new().gap(Dp(2.0)).align_items(AlignItems::CENTER)).child((
+                    icon_button(Symbols::MUTE, "Mute", current.muted, {
+                        {
+                            let write = write.clone();
+                            move || write(program, &|track| track.muted = !track.muted)
                         }
-                    },
-                    SwitchConfig::default(),
-                ),
-                Text(label).size(Sp(13.0)),
-                Spacer(),
-                Text(format!("{count}"))
-                    .size(Sp(12.0))
-                    .color(theme().on_surface_variant),
+                    }),
+                    icon_button(Symbols::SOLO, "Only this", current.solo, {
+                        {
+                            let write = write.clone();
+                            move || write(program, &|track| track.solo = !track.solo)
+                        }
+                    }),
+                    sized(
+                        Dp(92.0),
+                        Slider(
+                            current.gain,
+                            (0.0, 1.5),
+                            Some(0.05),
+                            {
+                                let write = write.clone();
+                                move |value| write(program, &|track| track.gain = value)
+                            },
+                            SliderConfig::default(),
+                        ),
+                    ),
+                )),
             )),
         );
     }
 
     let scroll = remember_scroll_state("neunote:tracks");
-
     ScrollArea(
-        Modifier::new()
-            .width(Dp(260.0))
-            .fill_max_height()
-            .background(theme().surface_container_low),
+        Modifier::new().fill_max_height(),
         scroll,
-        Column(Modifier::new().padding(Dp(4.0)).gap(Dp(2.0))).child(children),
+        Column(Modifier::new().padding(Dp(4.0)).gap(Dp(6.0))).child(children),
     )
 }

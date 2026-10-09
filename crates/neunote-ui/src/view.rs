@@ -2,14 +2,14 @@
 //! track list and piano roll, status line.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use neunote_audio::{decode_bytes, to_engine_input};
+use neunote_audio::{compute_peaks, decode_bytes, to_engine_input};
 use neunote_midi::midi_bytes;
-use neunote_types::ModelSize;
+use neunote_types::{ModelSize, NoteEvent};
 use repose_core::prelude::*;
 use repose_core::shortcuts::ShortcutMap;
 use repose_core::{RenderContext, shortcuts, timer};
@@ -29,6 +29,7 @@ use crate::instruments;
 use crate::job::{Job, Message, Weights};
 use crate::quantize::{Division, NOTE_NAMES, Quantize, Scale, Snap};
 use crate::roll::{self, Viewport};
+use crate::waveform;
 use crate::{piano_roll, tracks};
 
 // Codepoints from the bundled Material Symbols Outlined face, for the actions
@@ -49,7 +50,10 @@ material_symbols! {
     SAVE: '\u{e161}',
     PLAY: '\u{e037}',
     PAUSE: '\u{e034}',
+    STOP: '\u{e5cd}',
     WAVE: '\u{E1B8}',
+    MUTE: '\u{e04f}',
+    SOLO: '\u{E050}',
 }
 
 /// A control's icon and its label. The icon takes its colour from whatever
@@ -97,12 +101,62 @@ pub struct Shell {
     /// Record that answer. `false` withdraws it where the host can forget.
     pub set_licence_accepted: Rc<dyn Fn(bool)>,
     pub save_midi: Saver,
+    /// Playback, where the host has a device to play through. A browser has
+    /// none, and the view offers no transport without it.
+    pub transport: Option<Rc<dyn Transport>>,
 }
 
-struct Source {
+/// What a host that can make sound answers with.
+pub trait Transport: Send + Sync + 'static {
+    fn play(&self, samples: Arc<Vec<f32>>, notes: Arc<Vec<NoteEvent>>, duration: f64, mix: Mix);
+    fn set_mix(&self, mix: Mix);
+    fn pause(&self);
+    fn resume(&self);
+    /// Move the sound to `seconds` into the file.
+    fn seek(&self, seconds: f64);
+    fn stop(&self);
+    fn playing(&self) -> bool;
+    /// Seconds into the file the sound has reached.
+    fn position(&self) -> f64;
+}
+
+/// What is playing, and which instruments are in it.
+#[derive(Clone)]
+pub struct Mix {
+    pub mode: Option<Mode>,
+    pub volume: f32,
+    /// By General MIDI program.
+    pub tracks: Vec<(u16, TrackMix)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Audio,
+    Notes,
+}
+
+#[derive(Clone, Copy)]
+pub struct TrackMix {
+    pub gain: f32,
+    pub muted: bool,
+    pub solo: bool,
+}
+
+impl Default for TrackMix {
+    fn default() -> Self {
+        Self {
+            gain: 1.0,
+            muted: false,
+            solo: false,
+        }
+    }
+}
+
+pub(crate) struct Source {
     name: String,
     samples: Arc<Vec<f32>>,
-    duration: f64,
+    pub(crate) duration: f64,
+    pub(crate) peaks: Arc<Vec<(f32, f32)>>,
 }
 
 #[derive(Clone, Default)]
@@ -150,9 +204,14 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let hidden = remember(|| signal(Rc::new(HashSet::<u16>::new())));
     let licence = remember(|| signal((shell.licence_accepted)()));
     let viewport = remember(|| signal(Viewport::default()));
+    let strip_size = remember(|| signal(Vec2 { x: 0.0, y: 0.0 }));
     let roll_size = remember_with_key("neunote:roll-size", || signal(Vec2 { x: 0.0, y: 0.0 }));
     let quantize = remember(|| signal(Quantize::default()));
     let quantising = remember(|| signal(false));
+    let head = remember(|| signal(0.0f64));
+    let playing = remember(|| signal(false));
+    let mode = remember(|| signal(Mode::Audio));
+    let mix = remember(|| signal(Rc::new(HashMap::<u16, TrackMix>::new())));
     let started: Rc<Cell<Option<Instant>>> =
         remember_with_key("neunote:started", || Cell::new(None));
 
@@ -227,6 +286,9 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 
     // --- actions -----------------------------------------------------------
 
+    // A handle of its own, so the picker's callback can own one without
+    // taking the signal away from the transport below.
+    let head_reset = head.clone();
     let on_open = {
         let phase = (*phase).clone();
         let status = (*status).clone();
@@ -243,6 +305,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             let source = source.clone();
             let editor = editor.clone();
             let viewport = viewport.clone();
+            let head = head_reset.clone();
 
             picker(Rc::new(move |loaded| {
                 let Some(loaded) = loaded else {
@@ -258,11 +321,14 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                         match to_engine_input(&buffer) {
                             Ok(mono) => {
                                 status.set(format!("{} · {:.1}s", loaded.name, seconds));
+                                let peaks = Arc::new(compute_peaks(&mono, 1600));
                                 source.set(Some(Rc::new(Source {
                                     name: loaded.name,
                                     samples: Arc::new(mono),
                                     duration: seconds,
+                                    peaks,
                                 })));
+                                head.set(0.0);
                                 editor.reset(Vec::new());
                                 viewport.set(Viewport::default());
                                 phase.set(Phase::Idle);
@@ -417,6 +483,157 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 }),
             );
         }
+    };
+
+    // --- playback ---------------------------------------------------------
+    // Nothing to play without a host that can make sound, and nothing to play
+    // without the recording to play.
+
+    let notes_for_play = editor.notes();
+    let mix_now: Rc<dyn Fn() -> Mix> = Rc::new({
+        let mode = (*mode).clone();
+        let mix = (*mix).clone();
+        let shown = hidden.clone();
+        let source = (*source).clone();
+        let tracks = tracks::rows(&notes_for_play);
+
+        move || Mix {
+            mode: (mode.get() == Mode::Audio || source.get().is_some()).then_some(mode.get()),
+            volume: 0.9,
+            tracks: tracks
+                .iter()
+                .map(|(program, _, _, _)| {
+                    let track = (*mix.get()).get(program).copied().unwrap_or_default();
+                    let shown = !shown.get().contains(program);
+                    let mut track = track;
+                    if !shown {
+                        track.muted = true;
+                    }
+                    (*program, track)
+                })
+                .collect(),
+        }
+    });
+
+    let on_play = {
+        let source = (*source).clone();
+        let transport = shell.transport.clone();
+        let notes = Arc::new(notes_for_play.clone());
+        let mix_now = mix_now.clone();
+        let playing = (*playing).clone();
+        let status = (*status).clone();
+
+        Rc::new(move || {
+            let Some(transport) = transport.as_ref() else {
+                status.set("this build cannot make sound".to_owned());
+                return;
+            };
+            let Some(source) = source.get() else {
+                status.set("open an audio file first".to_owned());
+                return;
+            };
+
+            if playing.get() {
+                transport.pause();
+                playing.set(false);
+                return;
+            }
+
+            if transport.playing() {
+                transport.resume();
+            } else {
+                transport.play(
+                    Arc::clone(&source.samples),
+                    Arc::clone(&notes),
+                    source.duration,
+                    mix_now(),
+                );
+            }
+            playing.set(true);
+        })
+    };
+
+    let on_stop = {
+        let transport = shell.transport.clone();
+        let playing = (*playing).clone();
+        let head = (*head).clone();
+
+        Rc::new(move || {
+            if let Some(transport) = transport.as_ref() {
+                transport.stop();
+            }
+            playing.set(false);
+            head.set(0.0);
+        })
+    };
+
+    let on_seek = {
+        let transport = shell.transport.clone();
+        let head = (*head).clone();
+        let source = (*source).clone();
+
+        Rc::new(move |fraction: f64| {
+            let Some(transport) = transport.as_ref() else {
+                return;
+            };
+            let Some(source) = source.get() else {
+                return;
+            };
+
+            let seconds = fraction * source.duration;
+            head.set(seconds);
+            transport.seek(seconds);
+        })
+    };
+
+    let on_mode = {
+        let mode = (*mode).clone();
+        let transport = shell.transport.clone();
+        let mix_now = mix_now.clone();
+        let playing = (*playing).clone();
+
+        Rc::new(move |wanted: Mode| {
+            mode.set(wanted);
+            playing.set(true);
+            if let Some(transport) = transport.as_ref() {
+                transport.resume();
+                transport.set_mix(mix_now());
+            }
+        })
+    };
+
+    // The host keeps the clock: the view only reads where the sound has got to.
+    scoped_effect_once({
+        let transport = shell.transport.clone();
+        let head = (*head).clone();
+        let playing = (*playing).clone();
+
+        move || {
+            let handle = transport.as_ref().map(|transport| {
+                let transport = Rc::clone(transport);
+                timer::interval(Duration::from_millis(60), move || {
+                    if playing.get() {
+                        head.set(transport.position());
+                    }
+                })
+            });
+
+            Dispose::new(move || {
+                if let Some(handle) = handle {
+                    handle.cancel();
+                }
+            })
+        }
+    });
+
+    let publish: Rc<dyn Fn()> = {
+        let transport = shell.transport.clone();
+        let mix_now = mix_now.clone();
+        Rc::new(move || {
+            if let Some(transport) = transport.as_ref() {
+                transport.set_mix(mix_now());
+            }
+        })
     };
 
     let on_cancel = {
@@ -799,7 +1016,12 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let list = if shown_notes.is_empty() {
         instruments::view((*instruments).clone())
     } else {
-        tracks::view(tracks::rows(&shown_notes), (*hidden).clone())
+        tracks::view(
+            tracks::rows(&shown_notes),
+            (*hidden).clone(),
+            (*mix).clone(),
+            publish.clone(),
+        )
     };
 
     let inspector = quantise_panel(&quantising, &quantize, &apply_quantize);
@@ -813,12 +1035,83 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         Box(Modifier::new().fill_max_height().flex_grow(1.0)).child(list),
         inspector,
     ));
-    let roll = piano_roll::view(
-        editor.clone(),
-        (*hidden).get(),
-        (*viewport).clone(),
-        (*roll_size).clone(),
-    );
+    // Hearing what the model made of the recording, next to the recording.
+    let transport_bar = Row(Modifier::new()
+        .fill_max_width()
+        .padding(Dp(6.0))
+        .gap(Dp(6.0))
+        .align_items(AlignItems::CENTER))
+    .child(vec![
+        if playing.get() {
+            Button(
+                Modifier::new(),
+                click(on_play.clone()),
+                ButtonConfig::default(),
+                || with_icon(Symbols::PAUSE, "Pause"),
+            )
+        } else {
+            Button(
+                Modifier::new(),
+                click(on_play.clone()),
+                ButtonConfig::default(),
+                || with_icon(Symbols::PLAY, "Play"),
+            )
+        },
+        icon_button(
+            Symbols::STOP,
+            "Back to the start",
+            true,
+            click(on_stop.clone()),
+        ),
+        Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
+            Text("play")
+                .size(Sp(11.0))
+                .color(theme().on_surface_variant),
+            SegmentedButton(
+                &[if mode.get() == Mode::Audio { 0 } else { 1 }],
+                [
+                    ("the recording".to_owned(), Mode::Audio),
+                    ("the notes".to_owned(), Mode::Notes),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(index, (label, wanted))| SegmentConfig {
+                    label,
+                    icon: None,
+                    on_click: {
+                        let on_mode = Rc::clone(&on_mode);
+                        Rc::new(move || on_mode(wanted))
+                    },
+                    enabled: index == (if mode.get() == Mode::Audio { 0 } else { 1 }),
+                    ..Default::default()
+                })
+                .collect(),
+                SegmentedButtonConfig::default(),
+            ),
+        )),
+        Spacer(),
+        Text(format!(
+            "{} / {}",
+            clock(head.get()),
+            clock(source.get().as_ref().map_or(0.0, |source| source.duration))
+        ))
+        .size(Sp(12.0))
+        .color(theme().on_surface_variant),
+    ]);
+
+    let stage = Column(Modifier::new().fill_max_size()).child((
+        waveform::view(source.get(), head.get(), (*strip_size).clone(), {
+            let on_seek = on_seek.clone();
+            move |fraction| on_seek(fraction)
+        }),
+        transport_bar,
+        piano_roll::view(
+            editor.clone(),
+            (*hidden).get(),
+            (*viewport).clone(),
+            (*roll_size).clone(),
+        ),
+    ));
 
     let selection = {
         let chosen = editor.selection();
@@ -913,7 +1206,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 
     Column(Modifier::new().fill_max_size()).child((
         toolbar,
-        Row(Modifier::new().fill_max_size()).child((rail, roll)),
+        Row(Modifier::new().fill_max_size()).child((rail, stage)),
         footer,
     ))
 }
@@ -923,7 +1216,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 /// Not `View::modifier`: that replaces the widget's modifier, and a widget's
 /// painter, size and focus all live on it -- a slider re-modified this way draws
 /// nothing at all.
-fn sized(width: Dp, control: View) -> View {
+pub(crate) fn sized(width: Dp, control: View) -> View {
     Box(Modifier::new().width(width).align_self_center()).child(control)
 }
 
@@ -934,7 +1227,7 @@ fn click(action: Rc<dyn Fn()>) -> impl Fn() + 'static {
 
 /// A quiet square button for an action its glyph already says, with a tooltip
 /// for what it says.
-fn icon_button(
+pub(crate) fn icon_button(
     symbol: Symbol,
     label: &'static str,
     enabled: bool,
@@ -1234,6 +1527,12 @@ fn remaining(started: Option<Instant>, done: usize, total: usize) -> u64 {
 
     let elapsed = started.elapsed().as_secs_f64();
     ((elapsed / done as f64) * (total - done) as f64).round() as u64
+}
+
+/// Seconds as minutes and seconds, the way a recording's duration reads.
+fn clock(seconds: f64) -> String {
+    let total = seconds.max(0.0).round() as u64;
+    format!("{}:{:02}", total / 60, total % 60)
 }
 
 fn stem(name: &str) -> &str {

@@ -7,6 +7,8 @@
 //! between them -- state, the job, the piano roll -- is `neunote-ui`.
 
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+mod audio;
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
