@@ -870,18 +870,21 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 
     // --- chrome ------------------------------------------------------------
 
+    // The file's name, not its path: the button says what is loaded, and a
+    // 75-character home directory does not fit a toolbar.
     let weights_label = match (shell.cached_weights)(size.get()) {
-        Some(path) => format!("Checkpoint: {}", path.display()),
-        None if picked_weights.get().is_some() => String::from("Checkpoint: picked file"),
-        None => String::from("Checkpoint: none"),
+        Some(path) => path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .map(|name| name.strip_prefix("muscriptor-").unwrap_or(&name).to_owned())
+            .unwrap_or_else(|| path.display().to_string()),
+        None if picked_weights.get().is_some() => String::from("a picked file"),
+        None => String::from("no checkpoint"),
     };
 
     let overflow = remember(MenuState::new);
-    let model = Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
-        Text("model")
-            .size(Sp(11.0))
-            .color(theme().on_surface_variant),
-        SegmentedButton(
+    // The three checkpoints as one control: Small, Medium, Large.
+    let model = SegmentedButton(
             &[ModelSize::ALL
                 .into_iter()
                 .position(|candidate| candidate == size.get())
@@ -898,10 +901,9 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                     enabled: true,
                     ..Default::default()
                 })
-                .collect(),
-            SegmentedButtonConfig::default(),
-        ),
-    ));
+        .collect(),
+        SegmentedButtonConfig::default(),
+    );
 
     let overflow_menu = menu(
         overflow.clone(),
@@ -914,6 +916,13 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             IconButtonConfig::default(),
         ),
         vec![
+            (
+                "Cancel the run".to_owned(),
+                Rc::new({
+                    let cancel = on_cancel.clone();
+                    move || cancel()
+                }) as Rc<dyn Fn()>,
+            ),
             (
                 "Download weights".to_owned(),
                 Rc::new({
@@ -966,7 +975,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             Modifier::new(),
             click(on_open.clone()),
             ButtonConfig::default(),
-            || with_icon(Symbols::FOLDER, "Open audio"),
+            || with_icon(Symbols::FOLDER, "Open"),
         ),
         TextButton(
             Modifier::new(),
@@ -981,9 +990,6 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             ButtonConfig::default(),
             || with_icon(Symbols::MUSIC_NOTE, "Transcribe"),
         ),
-        TextButton(Modifier::new(), on_cancel, ButtonConfig::default(), || {
-            with_icon(Symbols::CLOSE, "Cancel")
-        }),
         FilledTonalButton(
             Modifier::new(),
             click(on_save.clone()),
@@ -1167,9 +1173,9 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             .size(Sp(12.0))
             .color(theme().on_surface_variant),
         labelled(
-            "time",
+            "width",
             sized(
-                Dp(200.0),
+                Dp(150.0),
                 Slider(
                     view_now.px_per_sec,
                     (roll::MIN_PX_PER_SEC, roll::MAX_PX_PER_SEC),
@@ -1187,7 +1193,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         labelled(
             "rows",
             sized(
-                Dp(200.0),
+                Dp(120.0),
                 Slider(
                     view_now.px_per_pitch,
                     (roll::MIN_PX_PER_PITCH, roll::MAX_PX_PER_PITCH),
