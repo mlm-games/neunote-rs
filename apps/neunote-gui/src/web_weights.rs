@@ -49,17 +49,17 @@ pub(crate) fn resolve(size: ModelSize, done: Resolved) {
     let entry = manifest::entry(size);
     let name = entry.file_name.to_owned();
 
-    with_models_dir(move |dir| {
-        then(
-            dir.get_file_handle(&name),
-            move |value| match value.dyn_into::<FileSystemFileHandle>() {
-                Ok(handle) => read_bytes(handle, done),
-                Err(_) => done(Err(format!(
-                    "{} is not in this browser yet -- download it once and it stays.",
-                    entry.file_name
-                ))),
-            },
-        );
+    with_models_dir(move |dir| match dir {
+        Ok(dir) => then(dir.get_file_handle(&name), move |value| match value
+            .dyn_into::<FileSystemFileHandle>()
+        {
+            Ok(handle) => read_bytes(handle, done),
+            Err(_) => done(Err(format!(
+                "{} is not in this browser yet -- download it once and it stays.",
+                entry.file_name
+            ))),
+        }),
+        Err(error) => done(Err(error)),
     });
 }
 
@@ -151,53 +151,56 @@ pub(crate) fn fetch(size: ModelSize, accepted: bool, progress: Progress, done: R
 fn store(entry: &'static ModelEntry, bytes: Vec<u8>, done: Resolved) {
     let name = entry.file_name.to_owned();
 
-    with_models_dir(move |dir| {
-        let options = web_sys::FileSystemGetFileOptions::new();
-        options.set_create(true);
+    with_models_dir(move |dir| match dir {
+        Ok(dir) => {
+            let options = web_sys::FileSystemGetFileOptions::new();
+            options.set_create(true);
 
-        then(
-            dir.get_file_handle_with_options(&name, &options),
-            move |value| {
-                let Ok(handle) = value.dyn_into::<FileSystemFileHandle>() else {
-                    done(Err(String::from("the browser would not create the file")));
-                    return;
-                };
-
-                then(handle.create_writable(), move |value| {
-                    let Ok(stream) = value.dyn_into::<web_sys::FileSystemWritableFileStream>()
-                    else {
-                        done(Err(String::from("the file would not open for writing")));
+            then(
+                dir.get_file_handle_with_options(&name, &options),
+                move |value| {
+                    let Ok(handle) = value.dyn_into::<FileSystemFileHandle>() else {
+                        done(Err(String::from("the browser would not create the file")));
                         return;
                     };
 
-                    let array = js_sys::Uint8Array::from(bytes.as_slice());
-                    then(
-                        stream
-                            .write_with_buffer_source(array.as_ref())
-                            .expect("a writable stream accepts bytes"),
-                        move |_| {
-                            then(stream.close(), move |_| read_back(entry, done));
-                        },
-                    );
-                });
-            },
-        );
+                    then(handle.create_writable(), move |value| {
+                        let Ok(stream) = value.dyn_into::<web_sys::FileSystemWritableFileStream>()
+                        else {
+                            done(Err(String::from("the file would not open for writing")));
+                            return;
+                        };
+
+                        let array = js_sys::Uint8Array::from(bytes.as_slice());
+                        then(
+                            stream
+                                .write_with_buffer_source(array.as_ref())
+                                .expect("a writable stream accepts bytes"),
+                            move |_| {
+                                then(stream.close(), move |_| read_back(entry, done));
+                            },
+                        );
+                    });
+                },
+            )
+        }
+        Err(error) => done(Err(error)),
     });
 }
 
 fn read_back(entry: &'static ModelEntry, done: Resolved) {
     let name = entry.file_name.to_owned();
 
-    with_models_dir(move |dir| {
-        then(
-            dir.get_file_handle(&name),
-            move |value| match value.dyn_into::<FileSystemFileHandle>() {
-                Ok(handle) => read_bytes(handle, done),
-                Err(_) => done(Err(String::from(
-                    "the download vanished before it could be read",
-                ))),
-            },
-        );
+    with_models_dir(move |dir| match dir {
+        Ok(dir) => then(dir.get_file_handle(&name), move |value| match value
+            .dyn_into::<FileSystemFileHandle>()
+        {
+            Ok(handle) => read_bytes(handle, done),
+            Err(_) => done(Err(String::from(
+                "the download vanished before it could be read",
+            ))),
+        }),
+        Err(error) => done(Err(error)),
     });
 }
 
@@ -225,13 +228,33 @@ fn window_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 
-fn with_models_dir(then_dir: impl FnOnce(FileSystemDirectoryHandle) + 'static) {
-    let Some(storage) = web_sys::window().map(|window| window.navigator().storage()) else {
+/// What to say when the browser will not hand over a private store. OPFS wants
+/// a secure context, and private windows refuse it outright -- and a caller that
+/// silently gives up here leaves the view waiting for an answer forever.
+const NO_STORE: &str = "this browser will not give the page a private store for the checkpoint \
+(OPFS needs HTTPS or localhost, and private windows refuse it) -- download the weights on a \
+secure origin, or pick the .gguf yourself";
+
+/// `navigator.storage` as an interface, if this browser has one.
+///
+/// The web-sys getter is not optional: on a browser without it the call hands
+/// back `undefined` wearing the type, and the next call throws. Asking for the
+/// property and checking it turns that into an ordinary failure to report.
+fn storage_manager() -> Option<web_sys::StorageManager> {
+    let navigator = web_sys::window()?.navigator();
+    let storage = js_sys::Reflect::get(navigator.as_ref(), &JsValue::from_str("storage")).ok()?;
+    storage.dyn_into::<web_sys::StorageManager>().ok()
+}
+
+fn with_models_dir(then_dir: impl FnOnce(Result<FileSystemDirectoryHandle, String>) + 'static) {
+    let Some(storage) = storage_manager() else {
+        then_dir(Err(String::from(NO_STORE)));
         return;
     };
 
     then(storage.get_directory(), move |root| {
         let Ok(root) = root.dyn_into::<FileSystemDirectoryHandle>() else {
+            then_dir(Err(String::from(NO_STORE)));
             return;
         };
 
@@ -239,10 +262,9 @@ fn with_models_dir(then_dir: impl FnOnce(FileSystemDirectoryHandle) + 'static) {
         options.set_create(true);
         then(
             root.get_directory_handle_with_options("models", &options),
-            move |value| {
-                if let Ok(dir) = value.dyn_into::<FileSystemDirectoryHandle>() {
-                    then_dir(dir);
-                }
+            move |value| match value.dyn_into::<FileSystemDirectoryHandle>() {
+                Ok(dir) => then_dir(Ok(dir)),
+                Err(_) => then_dir(Err(String::from(NO_STORE))),
             },
         );
     });
