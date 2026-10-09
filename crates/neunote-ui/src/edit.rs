@@ -42,6 +42,7 @@ pub(crate) struct Editor {
     shown: Signal<Rc<Vec<(usize, NoteEvent)>>>,
     selection: Signal<Rc<BTreeSet<usize>>>,
     quantize: Signal<Option<Quantize>>,
+    hand: Rc<RefCell<Vec<bool>>>,
     history: Rc<RefCell<History>>,
 }
 
@@ -55,6 +56,7 @@ impl Editor {
             shown: signal(Rc::new(Vec::new())),
             selection,
             quantize: signal(None),
+            hand: Rc::new(RefCell::new(Vec::new())),
             history: Rc::new(RefCell::new(History::default())),
         };
 
@@ -66,7 +68,7 @@ impl Editor {
     fn refresh(&self) {
         let raw = self.raw.get();
         self.shown.set(Rc::new(match self.quantize.get() {
-            Some(quantize) => quantize.apply_indexed(&roll::indexed(&raw)),
+            Some(quantize) => quantize.apply_indexed(&roll::indexed(&raw), &self.hand.borrow()),
             None => roll::indexed(&raw),
         }));
     }
@@ -139,16 +141,29 @@ impl Editor {
 
     /// Show a list without recording it. Used while a drag is still in flight.
     pub(crate) fn preview(&self, notes: Vec<NoteEvent>) {
+        self.hand.borrow_mut().resize(notes.len(), false);
         self.raw.set(Rc::new(notes));
         self.refresh();
     }
 
     /// Record `before` as the state a drag started from, if the drag actually
-    /// changed anything.
+    /// changed anything. Whatever it moved is the user's from here on:
+    /// quantisation leaves it alone.
     pub(crate) fn commit(&self, before: Rc<Vec<NoteEvent>>) {
-        if before.as_ref() == self.raw.get().as_ref() {
+        let after = self.raw.get();
+        if before.as_ref() == after.as_ref() {
             return;
         }
+
+        let mut hand = self.hand.borrow_mut();
+        for (index, old) in before.iter().enumerate() {
+            if after.get(index) != Some(old)
+                && let Some(slot) = hand.get_mut(index)
+            {
+                *slot = true;
+            }
+        }
+        drop(hand);
 
         let mut history = self.history.borrow_mut();
         history.undo.push(before);
@@ -175,6 +190,7 @@ impl Editor {
         self.clear_history();
         self.preview(notes);
         self.clear_selection();
+        self.hand.borrow_mut().clear();
     }
 
     /// Notes arriving from a run in flight. The run owns these, so they are not
@@ -183,6 +199,7 @@ impl Editor {
         self.clear_history();
         self.preview(notes);
         self.clear_selection();
+        self.hand.borrow_mut().clear();
     }
 
     pub(crate) fn undo(&self) -> bool {
@@ -234,6 +251,15 @@ impl Editor {
             .map(|(_, note)| *note)
             .collect();
 
+        let mut hand = self.hand.borrow_mut();
+        let mut at = 0;
+        hand.retain(|_| {
+            let keep = !selection.contains(&at);
+            at += 1;
+            keep
+        });
+        drop(hand);
+
         self.replace(kept);
         self.clear_selection();
         true
@@ -270,6 +296,15 @@ impl Editor {
             })
             .collect();
 
+        {
+            let mut hand = self.hand.borrow_mut();
+            for index in selection.iter() {
+                if let Some(slot) = hand.get_mut(*index) {
+                    *slot = true;
+                }
+            }
+        }
+
         self.replace(moved);
         true
     }
@@ -289,6 +324,10 @@ impl Editor {
 
         self.replace(notes);
         self.select_only(index);
+        let mut hand = self.hand.borrow_mut();
+        if let Some(slot) = hand.get_mut(index) {
+            *slot = true;
+        }
     }
 
     fn clear_history(&self) {
@@ -590,6 +629,30 @@ mod tests {
             61,
             "the dropped note is untouched"
         );
+    }
+
+    #[test]
+    fn a_note_the_user_moved_is_not_quantised_over() {
+        let editor = off_grid();
+        editor.select_only(0);
+
+        assert!(editor.nudge(1, 0, None));
+        let by_hand = shown(&editor)[0].onset;
+
+        editor.set_quantize(Some(Quantize {
+            times: true,
+            bpm: 120.0,
+            division: crate::quantize::Division::Sixteenth,
+            strength: 1.0,
+            ..Quantize::default()
+        }));
+
+        assert_eq!(
+            shown(&editor)[0].onset,
+            by_hand,
+            "the note stays where it was put"
+        );
+        assert_eq!(editor.snapshot()[0].onset, by_hand);
     }
 
     #[test]

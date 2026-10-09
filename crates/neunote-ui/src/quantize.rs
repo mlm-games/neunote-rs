@@ -202,14 +202,18 @@ impl Quantize {
 
     /// Snap pitches into the scale. Drum hits keep their pitch: a scale has
     /// nothing to say about a snare.
-    fn apply_pitches(&self, notes: &mut Vec<(usize, NoteEvent)>) {
+    fn apply_pitches(&self, notes: &mut Vec<(usize, NoteEvent)>, hand: &dyn Fn(usize) -> bool) {
         if !self.pitches || self.scale == Scale::Chromatic {
             return;
         }
 
-        notes.retain_mut(|(_, note)| {
-            if note.is_drum || self.scale.allows(self.root, note.pitch) {
+        notes.retain_mut(|(index, note)| {
+            if hand(*index) || note.is_drum || self.scale.allows(self.root, note.pitch) {
                 return true;
+            }
+
+            if self.snap == Snap::Remove {
+                return false;
             }
 
             if self.snap == Snap::Remove {
@@ -232,7 +236,7 @@ impl Quantize {
     /// Pull onsets towards the grid, keeping every note's length. Strength 1
     /// lands on it; below that the note is a fraction of the way there, so the
     /// groove survives.
-    fn apply_times(&self, notes: &mut [(usize, NoteEvent)]) {
+    fn apply_times(&self, notes: &mut [(usize, NoteEvent)], hand: &dyn Fn(usize) -> bool) {
         if !self.times || self.strength <= 0.0 {
             return;
         }
@@ -242,7 +246,11 @@ impl Quantize {
             return;
         }
 
-        for (_, note) in notes.iter_mut() {
+        for (index, note) in notes.iter_mut() {
+            if hand(*index) {
+                continue;
+            }
+
             let length = note.offset - note.onset;
             let target = (note.onset / step).round() * step;
             let onset = (note.onset + (target - note.onset) * self.strength).max(0.0);
@@ -254,14 +262,23 @@ impl Quantize {
     /// Quantise a list that carries its place in the raw transcription, and
     /// keep every place: an edit on a quantised note has to reach the note it
     /// came from, not whatever now sits at that position.
-    pub fn apply_indexed(&self, notes: &[(usize, NoteEvent)]) -> Vec<(usize, NoteEvent)> {
+    ///
+    /// `hand` names the notes the user put there themselves, by their place in
+    /// the raw list, and leaves them exactly where they were put: dragging a
+    /// note is a decision, not a suggestion for the grid.
+    pub fn apply_indexed(
+        &self,
+        notes: &[(usize, NoteEvent)],
+        hand: &[bool],
+    ) -> Vec<(usize, NoteEvent)> {
         if self.is_identity() {
             return notes.to_vec();
         }
 
+        let untouched = |index: usize| hand.get(index).copied().unwrap_or(false);
         let mut out = notes.to_vec();
-        self.apply_pitches(&mut out);
-        self.apply_times(&mut out);
+        self.apply_pitches(&mut out, &untouched);
+        self.apply_times(&mut out, &untouched);
         out
     }
 }
@@ -304,7 +321,7 @@ mod tests {
     fn apply(quantize: &Quantize, notes: &[NoteEvent]) -> Vec<NoteEvent> {
         let indexed = notes.iter().copied().enumerate().collect::<Vec<_>>();
         quantize
-            .apply_indexed(&indexed)
+            .apply_indexed(&indexed, &[])
             .into_iter()
             .map(|(_, note)| note)
             .collect()
@@ -403,27 +420,23 @@ mod tests {
             .is_empty()
         );
         assert_eq!(
-            pitches(
-                &apply(
-                    &Quantize {
-                        snap: Snap::Up,
-                        ..base
-                    },
-                    &notes,
-                )
-            ),
+            pitches(&apply(
+                &Quantize {
+                    snap: Snap::Up,
+                    ..base
+                },
+                &notes,
+            )),
             vec![67]
         );
         assert_eq!(
-            pitches(
-                &apply(
-                    &Quantize {
-                        snap: Snap::Down,
-                        ..base
-                    },
-                    &notes,
-                )
-            ),
+            pitches(&apply(
+                &Quantize {
+                    snap: Snap::Down,
+                    ..base
+                },
+                &notes,
+            )),
             vec![65]
         );
     }
