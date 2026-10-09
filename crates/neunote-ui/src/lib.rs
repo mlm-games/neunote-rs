@@ -9,6 +9,7 @@
 //! a piano roll, a track list, a progress line.
 
 mod edit;
+mod instruments;
 mod job;
 mod piano_roll;
 mod quantize;

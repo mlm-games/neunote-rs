@@ -9,21 +9,23 @@ use std::sync::Arc;
 
 use neunote_audio::{decode_bytes, to_engine_input};
 use neunote_midi::midi_bytes;
-use neunote_types::{GroupId, ModelSize};
+use neunote_types::ModelSize;
 use repose_core::prelude::*;
 use repose_core::shortcuts::ShortcutMap;
 use repose_core::{RenderContext, shortcuts, timer};
 use repose_material::material3::{
     Button, ButtonConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry, DropdownMenuItem,
-    FilledTonalButton, LinearProgressIndicator, LinearProgressIndicatorConfig, MenuState,
-    RadioButton, RadioButtonConfig, SegmentConfig, SegmentedButton, SegmentedButtonConfig, Slider,
-    SliderConfig, Switch, SwitchConfig, TextButton, TextField, TextFieldConfig,
+    FilledTonalButton, IconButton, IconButtonConfig, LinearProgressIndicator,
+    LinearProgressIndicatorConfig, MenuState, SegmentConfig, SegmentedButton,
+    SegmentedButtonConfig, Slider, SliderConfig, Switch, SwitchConfig, TextButton, TooltipBox,
+    TooltipConfig, TooltipState,
 };
 use repose_material::{Icon, Symbol, material_symbols};
 use repose_ui::*;
 use web_time::{Duration, Instant};
 
 use crate::edit::Editor;
+use crate::instruments;
 use crate::job::{Job, Message, Weights};
 use crate::quantize::{Division, NOTE_NAMES, Quantize, Scale, Snap};
 use crate::roll::{self, Viewport};
@@ -38,6 +40,16 @@ material_symbols! {
     MUSIC_NOTE: '\u{E405}',
     CLOSE: '\u{E5CD}',
     TUNE: '\u{E429}',
+    UNDO: '\u{e166}',
+    REDO: '\u{e15a}',
+    FIT: '\u{E5D0}',
+    DARK: '\u{e51c}',
+    LIGHT: '\u{e518}',
+    MORE: '\u{e5d4}',
+    SAVE: '\u{e161}',
+    PLAY: '\u{e037}',
+    PAUSE: '\u{e034}',
+    WAVE: '\u{E1B8}',
 }
 
 /// A control's icon and its label. The icon takes its colour from whatever
@@ -134,7 +146,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let picked_weights = remember(|| signal(None::<Rc<Vec<u8>>>));
     let size = remember(|| signal(ModelSize::Small));
     let prelude = remember(|| signal(true));
-    let instruments = remember(|| signal(String::new()));
+    let instruments = remember(|| signal(Vec::new()));
     let hidden = remember(|| signal(Rc::new(HashSet::<u16>::new())));
     let licence = remember(|| signal((shell.licence_accepted)()));
     let viewport = remember(|| signal(Viewport::default()));
@@ -309,13 +321,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 return;
             };
 
-            let groups = match parse_groups(&instruments.get()) {
-                Ok(groups) => groups,
-                Err(error) => {
-                    status.set(error);
-                    return;
-                }
-            };
+            let groups = instruments.get();
 
             // Whatever the host hands over -- a path, or bytes from its own
             // store -- this is where the run starts.
@@ -470,10 +476,10 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         })
     };
 
-    let on_toggle_theme = {
+    let on_toggle_theme = Rc::new({
         let dark = dark.clone();
         move || dark.update(|dark| *dark = !*dark)
-    };
+    });
 
     // Quantisation is a view over the raw notes, so turning it on or moving a
     // knob is one call: the editor re-derives what the roll draws.
@@ -653,150 +659,160 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         None => String::from("Checkpoint: none"),
     };
 
-    let size_row = Row(Modifier::new().gap(Dp(2.0)).align_items(AlignItems::CENTER)).child(
-        ModelSize::ALL
-            .into_iter()
-            .map(|candidate| {
-                let chosen = (*size).clone();
-                Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
-                    RadioButton(
-                        size.get() == candidate,
-                        move || chosen.set(candidate),
-                        RadioButtonConfig::default(),
-                    ),
-                    Text(candidate.as_str()).size(Sp(12.0)),
-                ))
-            })
-            .collect::<Vec<_>>(),
+    let overflow = remember(MenuState::new);
+    let model = Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
+        Text("model")
+            .size(Sp(11.0))
+            .color(theme().on_surface_variant),
+        SegmentedButton(
+            &[ModelSize::ALL
+                .into_iter()
+                .position(|candidate| candidate == size.get())
+                .unwrap_or(0)],
+            ModelSize::ALL
+                .into_iter()
+                .map(|candidate| SegmentConfig {
+                    label: candidate.display_name().into(),
+                    icon: None,
+                    on_click: {
+                        let size = (*size).clone();
+                        Rc::new(move || size.set(candidate))
+                    },
+                    enabled: true,
+                    ..Default::default()
+                })
+                .collect(),
+            SegmentedButtonConfig::default(),
+        ),
+    ));
+
+    let overflow_menu = menu(
+        overflow.clone(),
+        IconButton(
+            Icon(Symbols::MORE).size(Sp(19.0)),
+            {
+                let overflow = overflow.clone();
+                move || overflow.open()
+            },
+            IconButtonConfig::default(),
+        ),
+        vec![
+            (
+                "Download weights".to_owned(),
+                Rc::new({
+                    let download = on_download.clone();
+                    move || download()
+                }) as Rc<dyn Fn()>,
+            ),
+            (
+                format!(
+                    "{} the CC BY-NC weights licence",
+                    if licence.get() {
+                        "✓ accepted"
+                    } else {
+                        "Accept"
+                    }
+                ),
+                Rc::new({
+                    let licence = (*licence).clone();
+                    let record = shell.set_licence_accepted.clone();
+                    move || {
+                        let accepted = !licence.get();
+                        licence.set(accepted);
+                        record(accepted);
+                    }
+                }) as Rc<dyn Fn()>,
+            ),
+            (
+                format!("{} force ties", if prelude.get() { "✓" } else { "" }),
+                Rc::new({
+                    let prelude = prelude.clone();
+                    move || prelude.update(|on| *on = !*on)
+                }) as Rc<dyn Fn()>,
+            ),
+            (
+                format!("{} theme", if dark.get() { "Light" } else { "Dark" }),
+                Rc::new({
+                    let toggle = on_toggle_theme.clone();
+                    move || toggle()
+                }) as Rc<dyn Fn()>,
+            ),
+        ],
     );
 
-    // Three rows: the file and model controls, the run controls, and the
-    // quantise panel with the editing commands. One row overflows at the
-    // default window width.
-    let toolbar = Column(Modifier::new().padding(Dp(8.0)).gap(Dp(6.0))).child(vec![
-        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(vec![
-            TextButton(
-                Modifier::new(),
-                click(on_open.clone()),
-                ButtonConfig::default(),
-                || with_icon(Symbols::FOLDER, "Open audio"),
-            ),
-            TextButton(
-                Modifier::new(),
-                on_choose_weights,
-                ButtonConfig::default(),
-                || with_icon(Symbols::INBOX, weights_label.clone()),
-            ),
-            size_row,
-            Spacer(),
-            Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
-                Switch(
-                    prelude.get(),
-                    {
-                        let prelude = prelude.clone();
-                        move |on| prelude.set(on)
-                    },
-                    SwitchConfig::default(),
-                ),
-                Text("force ties").size(Sp(12.0)),
-            )),
-        ]),
-        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(vec![
-            TextField(
-                Modifier::new().width(Dp(320.0)),
-                instruments.get(),
-                {
-                    let instruments = instruments.clone();
-                    move |value| instruments.set(value)
-                },
-                TextFieldConfig {
-                    label: Some(String::from("instruments (comma separated, empty = all)")),
-                    ..Default::default()
-                },
-            ),
-            Spacer(),
-            Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
-                Switch(
-                    licence.get(),
-                    {
-                        let licence = licence.clone();
-                        let record = shell.set_licence_accepted.clone();
-                        move |on| {
-                            licence.set(on);
-                            record(on);
-                        }
-                    },
-                    SwitchConfig::default(),
-                ),
-                Text("accept CC BY-NC weights").size(Sp(12.0)),
-            )),
-            TextButton(
-                Modifier::new(),
-                on_download,
-                ButtonConfig::default(),
-                || with_icon(Symbols::CLOUD, "Download weights"),
-            ),
-            Button(
-                Modifier::new(),
-                on_transcribe,
-                ButtonConfig::default(),
-                || with_icon(Symbols::MUSIC_NOTE, "Transcribe"),
-            ),
-            TextButton(Modifier::new(), on_cancel, ButtonConfig::default(), || {
-                with_icon(Symbols::CLOSE, "Cancel")
-            }),
-            FilledTonalButton(
-                Modifier::new(),
-                click(on_save.clone()),
-                ButtonConfig::default(),
-                || Text("Save MIDI"),
-            ),
-        ]),
-        Row(Modifier::new().gap(Dp(8.0))).child(vec![
-            quantise_panel(&quantising, &quantize, &apply_quantize),
-            Spacer(),
-            TextButton(
-                Modifier::new(),
-                on_undo,
-                ButtonConfig {
-                    enabled: editor.can_undo(),
-                    ..Default::default()
-                },
-                || Text("Undo"),
-            ),
-            TextButton(
-                Modifier::new(),
-                on_redo,
-                ButtonConfig {
-                    enabled: editor.can_redo(),
-                    ..Default::default()
-                },
-                || Text("Redo"),
-            ),
-            TextButton(
-                Modifier::new(),
-                click(on_fit.clone()),
-                ButtonConfig::default(),
-                || Text("Fit"),
-            ),
-            TextButton(
-                Modifier::new(),
-                on_toggle_theme,
-                ButtonConfig::default(),
-                || Text(if dark.get() { "Light" } else { "Dark" }),
-            ),
-        ]),
+    let toolbar = Row(Modifier::new()
+        .padding(Dp(8.0))
+        .gap(Dp(6.0))
+        .align_items(AlignItems::CENTER))
+    .child(vec![
+        TextButton(
+            Modifier::new(),
+            click(on_open.clone()),
+            ButtonConfig::default(),
+            || with_icon(Symbols::FOLDER, "Open audio"),
+        ),
+        TextButton(
+            Modifier::new(),
+            on_choose_weights,
+            ButtonConfig::default(),
+            || with_icon(Symbols::INBOX, weights_label.clone()),
+        ),
+        model,
+        Button(
+            Modifier::new(),
+            on_transcribe,
+            ButtonConfig::default(),
+            || with_icon(Symbols::MUSIC_NOTE, "Transcribe"),
+        ),
+        TextButton(Modifier::new(), on_cancel, ButtonConfig::default(), || {
+            with_icon(Symbols::CLOSE, "Cancel")
+        }),
+        FilledTonalButton(
+            Modifier::new(),
+            click(on_save.clone()),
+            ButtonConfig::default(),
+            || with_icon(Symbols::SAVE, "Save MIDI"),
+        ),
+        Spacer(),
+        icon_button(Symbols::UNDO, "Undo", editor.can_undo(), {
+            let undo = on_undo.clone();
+            move || undo()
+        }),
+        icon_button(Symbols::REDO, "Redo", editor.can_redo(), {
+            let redo = on_redo.clone();
+            move || redo()
+        }),
+        icon_button(Symbols::FIT, "Fit the notes", true, {
+            let fit = on_fit.clone();
+            move || fit()
+        }),
+        overflow_menu,
     ]);
 
     // --- body --------------------------------------------------------------
 
     let shown_notes = editor.notes();
-    let track_panel = if shown_notes.is_empty() {
-        Box(Modifier::new().width(Dp(260.0)).fill_max_height())
+
+    // The rail is the inspector: the instruments to transcribe until there are
+    // notes, the tracks the run produced once there are, and the quantise
+    // settings under both. None of that was ever worth a toolbar row.
+    let list = if shown_notes.is_empty() {
+        instruments::view((*instruments).clone())
     } else {
         tracks::view(tracks::rows(&shown_notes), (*hidden).clone())
     };
 
+    let inspector = quantise_panel(&quantising, &quantize, &apply_quantize);
+    let rail = Column(
+        Modifier::new()
+            .width(Dp(268.0))
+            .fill_max_height()
+            .background(theme().surface_container_low),
+    )
+    .child((
+        Box(Modifier::new().fill_max_height().flex_grow(1.0)).child(list),
+        inspector,
+    ));
     let roll = piano_roll::view(
         editor.clone(),
         (*hidden).get(),
@@ -897,7 +913,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 
     Column(Modifier::new().fill_max_size()).child((
         toolbar,
-        Row(Modifier::new().fill_max_size()).child((track_panel, roll)),
+        Row(Modifier::new().fill_max_size()).child((rail, roll)),
         footer,
     ))
 }
@@ -916,6 +932,32 @@ fn click(action: Rc<dyn Fn()>) -> impl Fn() + 'static {
     move || action()
 }
 
+/// A quiet square button for an action its glyph already says, with a tooltip
+/// for what it says.
+fn icon_button(
+    symbol: Symbol,
+    label: &'static str,
+    enabled: bool,
+    on_click: impl Fn() + 'static,
+) -> View {
+    let state = remember(TooltipState::new);
+    TooltipBox(
+        label,
+        state,
+        Modifier::new(),
+        IconButton(
+            Icon(symbol).size(Sp(19.0)),
+            on_click,
+            IconButtonConfig {
+                enabled,
+                container_size: Some(Dp(34.0)),
+                ..Default::default()
+            },
+        ),
+        TooltipConfig::default(),
+    )
+}
+
 /// A short caption in front of a control.
 fn labelled(label: &str, control: View) -> View {
     Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
@@ -929,9 +971,62 @@ fn labelled(label: &str, control: View) -> View {
 /// The quantise panel. Off means the roll shows exactly what the model
 /// produced; on means the roll shows the raw notes put through these settings,
 /// and nothing about the raw list has moved.
+/// The quantise panel, now the rail's lower half. Off means the roll shows
+/// exactly what the model produced; on means the roll shows the raw notes put
+/// through these settings, and nothing about the raw list has moved.
 fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn Fn()>) -> View {
-    let mut children = vec![
+    if !on.get() {
+        return Row(Modifier::new()
+            .padding(Dp(10.0))
+            .gap(Dp(6.0))
+            .align_items(AlignItems::CENTER))
+        .child((
+            Icon(Symbols::TUNE)
+                .size(Sp(16.0))
+                .color(theme().on_surface_variant),
+            Switch(
+                on.get(),
+                {
+                    let on = on.clone();
+                    let apply = Rc::clone(apply);
+                    move |value| {
+                        on.set(value);
+                        apply();
+                    }
+                },
+                SwitchConfig::default(),
+            ),
+            Text("quantise").size(Sp(12.0)),
+            Spacer(),
+            Text("off").size(Sp(11.0)).color(theme().on_surface_variant),
+        ));
+    }
+
+    let current = params.get();
+    let toggle = |label: &str, value: bool, write: Rc<dyn Fn(bool)>| {
         Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
+            Switch(
+                value,
+                {
+                    let apply = Rc::clone(apply);
+                    move |on| {
+                        write(on);
+                        apply();
+                    }
+                },
+                SwitchConfig::default(),
+            ),
+            Text(label.to_owned()).size(Sp(12.0)),
+        ))
+    };
+
+    let root_state = remember(MenuState::new);
+    let scale_state = remember(MenuState::new);
+    let snap_state = remember(MenuState::new);
+    let division_state = remember(MenuState::new);
+
+    Column(Modifier::new().padding(Dp(10.0)).gap(Dp(8.0))).child(vec![
+        Row(Modifier::new().gap(Dp(6.0)).align_items(AlignItems::CENTER)).child((
             Icon(Symbols::TUNE)
                 .size(Sp(16.0))
                 .color(theme().on_surface_variant),
@@ -949,150 +1044,109 @@ fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn F
             ),
             Text("quantise").size(Sp(12.0)),
         )),
-    ];
-
-    if !on.get() {
-        children.push(
-            Text("off: the roll shows the transcription as produced")
-                .size(Sp(11.0))
-                .color(theme().on_surface_variant),
-        );
-        return Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(children);
-    }
-
-    let current = params.get();
-
-    children.push(labelled(
-        "scale",
-        Switch(
+        toggle(
+            "pitches into a scale",
             current.pitches,
-            {
+            Rc::new({
                 let params = params.clone();
-                let apply = apply.clone();
-                move |value| {
-                    params.update(|params| params.pitches = value);
-                    apply();
-                }
-            },
-            SwitchConfig::default(),
+                move |value| params.update(|params| params.pitches = value)
+            }),
         ),
-    ));
-
-    children.push(labelled(
-        "root",
-        menu(
-            remember(MenuState::new),
-            NOTE_NAMES[current.root as usize].to_owned(),
-            NOTE_NAMES
-                .iter()
-                .enumerate()
-                .map(|(index, name)| {
-                    let params = params.clone();
-                    let apply = apply.clone();
-                    (
-                        (*name).to_owned(),
-                        Rc::new(move || {
-                            params.update(|params| params.root = index as u8);
-                            apply();
-                        }) as Rc<dyn Fn()>,
-                    )
-                })
-                .collect(),
+        rail_field(
+            "root",
+            menu(
+                root_state.clone(),
+                menu_anchor(&root_state, NOTE_NAMES[current.root as usize].to_owned()),
+                NOTE_NAMES
+                    .iter()
+                    .enumerate()
+                    .map(|(index, name)| {
+                        let params = params.clone();
+                        let apply = apply.clone();
+                        (
+                            (*name).to_owned(),
+                            Rc::new(move || {
+                                params.update(|params| params.root = index as u8);
+                                apply();
+                            }) as Rc<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ),
         ),
-    ));
-
-    children.push(labelled(
-        "",
-        menu(
-            remember(MenuState::new),
-            current.scale.name().to_owned(),
-            Scale::ALL
-                .iter()
-                .map(|scale| {
-                    let params = params.clone();
-                    let apply = apply.clone();
-                    (
-                        scale.name().to_owned(),
-                        Rc::new(move || {
-                            params.update(|params| params.scale = *scale);
-                            apply();
-                        }) as Rc<dyn Fn()>,
-                    )
-                })
-                .collect(),
+        rail_field(
+            "scale",
+            menu(
+                scale_state.clone(),
+                menu_anchor(&scale_state, current.scale.name().to_owned()),
+                Scale::ALL
+                    .iter()
+                    .map(|scale| {
+                        let params = params.clone();
+                        let apply = apply.clone();
+                        (
+                            scale.name().to_owned(),
+                            Rc::new(move || {
+                                params.update(|params| params.scale = *scale);
+                                apply();
+                            }) as Rc<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ),
         ),
-    ));
-
-    children.push(SegmentedButton(
-        &[Snap::ALL
-            .iter()
-            .position(|snap| *snap == current.snap)
-            .unwrap_or(1)],
-        Snap::ALL
-            .iter()
-            .map(|snap| SegmentConfig {
-                label: snap.name().into(),
-                icon: None,
-                on_click: Rc::new({
-                    let params = params.clone();
-                    let apply = apply.clone();
-                    move || {
-                        params.update(|params| params.snap = *snap);
-                        apply();
-                    }
-                }),
-                enabled: current.pitches,
-                ..Default::default()
-            })
-            .collect(),
-        SegmentedButtonConfig::default(),
-    ));
-
-    children.push(labelled(
-        "grid",
-        Switch(
+        rail_field(
+            "out-of-scale notes",
+            menu(
+                snap_state.clone(),
+                menu_anchor(&snap_state, current.snap.name().to_owned()),
+                Snap::ALL
+                    .iter()
+                    .map(|snap| {
+                        let params = params.clone();
+                        let apply = apply.clone();
+                        (
+                            snap.name().to_owned(),
+                            Rc::new(move || {
+                                params.update(|params| params.snap = *snap);
+                                apply();
+                            }) as Rc<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+        toggle(
+            "onsets onto a grid",
             current.times,
-            {
+            Rc::new({
                 let params = params.clone();
-                let apply = apply.clone();
-                move |value| {
-                    params.update(|params| params.times = value);
-                    apply();
-                }
-            },
-            SwitchConfig::default(),
+                move |value| params.update(|params| params.times = value)
+            }),
         ),
-    ));
-
-    children.push(menu(
-        remember(MenuState::new),
-        current.division.label().to_owned(),
-        Division::ALL
-            .iter()
-            .map(|division| {
-                let params = params.clone();
-                let apply = apply.clone();
-                (
-                    division.label().to_owned(),
-                    Rc::new(move || {
-                        params.update(|params| params.division = *division);
-                        apply();
-                    }) as Rc<dyn Fn()>,
-                )
-            })
-            .collect(),
-    ));
-
-    // Tempo and strength mean nothing until the grid is on, and they are wide
-    // enough on their own to need a row of their own.
-    if !current.times {
-        return Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(children);
-    }
-
-    children.push(labelled(
-        "tempo",
-        sized(
-            Dp(200.0),
+        rail_field(
+            "grid",
+            menu(
+                division_state.clone(),
+                menu_anchor(&division_state, current.division.label().to_owned()),
+                Division::ALL
+                    .iter()
+                    .map(|division| {
+                        let params = params.clone();
+                        let apply = apply.clone();
+                        (
+                            division.label().to_owned(),
+                            Rc::new(move || {
+                                params.update(|params| params.division = *division);
+                                apply();
+                            }) as Rc<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+        rail_field(
+            &format!("tempo · {} bpm", current.bpm.round() as i32),
             Slider(
                 current.bpm as f32,
                 (40.0, 240.0),
@@ -1108,12 +1162,8 @@ fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn F
                 SliderConfig::default(),
             ),
         ),
-    ));
-
-    children.push(labelled(
-        &format!("{}%", (current.strength * 100.0).round() as i32),
-        sized(
-            Dp(200.0),
+        rail_field(
+            &format!("strength · {}%", (current.strength * 100.0).round() as i32),
             Slider(
                 current.strength as f32,
                 (0.0, 1.0),
@@ -1129,20 +1179,11 @@ fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn F
                 SliderConfig::default(),
             ),
         ),
-    ));
-
-    Column(Modifier::new().gap(Dp(4.0))).child((
-        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child({
-            // Everything before the sliders, so the first row stays narrow.
-            children[..children.len() - 2].to_vec()
-        }),
-        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER))
-            .child(children[children.len() - 2..].to_vec()),
-    ))
+    ])
 }
 
 /// A button that opens a menu of choices.
-fn menu(state: Rc<MenuState>, label: String, choices: Vec<(String, Rc<dyn Fn()>)>) -> View {
+fn menu(state: Rc<MenuState>, anchor: View, choices: Vec<(String, Rc<dyn Fn()>)>) -> View {
     let items = choices
         .into_iter()
         .map(|(text, choose)| {
@@ -1157,18 +1198,31 @@ fn menu(state: Rc<MenuState>, label: String, choices: Vec<(String, Rc<dyn Fn()>)
     DropdownMenu(
         state.clone(),
         Modifier::new(),
-        Button(
-            Modifier::new(),
-            {
-                let state = state.clone();
-                move || state.open()
-            },
-            ButtonConfig::default(),
-            || Text(label.clone()).size(Sp(12.0)),
-        ),
+        anchor,
         items,
         DropdownMenuConfig::default(),
     )
+}
+
+/// The labelled button a menu is anchored to.
+fn menu_anchor(state: &Rc<MenuState>, label: String) -> View {
+    let open = state.clone();
+    Button(
+        Modifier::new(),
+        move || open.open(),
+        ButtonConfig::default(),
+        || Text(label).size(Sp(12.0)),
+    )
+}
+
+/// A control with a caption above it, the width of the rail.
+fn rail_field(caption: &str, control: View) -> View {
+    Column(Modifier::new().gap(Dp(2.0))).child((
+        Text(caption.to_owned())
+            .size(Sp(11.0))
+            .color(theme().on_surface_variant),
+        control,
+    ))
 }
 
 /// Roughly how long a run has left, from the chunks it has done so far. The
@@ -1180,24 +1234,6 @@ fn remaining(started: Option<Instant>, done: usize, total: usize) -> u64 {
 
     let elapsed = started.elapsed().as_secs_f64();
     ((elapsed / done as f64) * (total - done) as f64).round() as u64
-}
-
-fn parse_groups(text: &str) -> Result<Vec<GroupId>, String> {
-    let mut groups = Vec::new();
-
-    for name in text
-        .split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
-        let group =
-            GroupId::from_name(name).ok_or_else(|| format!("unknown instrument '{name}'"))?;
-        if !groups.contains(&group) {
-            groups.push(group);
-        }
-    }
-
-    Ok(groups)
 }
 
 fn stem(name: &str) -> &str {
@@ -1224,22 +1260,5 @@ mod tests {
         let quarter = remaining(started, 1, 4);
         let three_quarters = remaining(started, 3, 4);
         assert!(three_quarters < quarter, "less work left, less time left");
-    }
-
-    #[test]
-    fn instrument_names_still_parse() {
-        assert!(parse_groups("").unwrap().is_empty());
-        assert_eq!(
-            parse_groups("acoustic_piano, acoustic_bass").unwrap().len(),
-            2
-        );
-        assert_eq!(
-            parse_groups("acoustic_piano, acoustic_piano")
-                .unwrap()
-                .len(),
-            1,
-            "a repeated name is one group"
-        );
-        assert!(parse_groups("kazoo").is_err());
     }
 }
