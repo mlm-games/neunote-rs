@@ -15,9 +15,9 @@ use repose_core::shortcuts::ShortcutMap;
 use repose_core::{RenderContext, shortcuts, timer};
 use repose_material::material3::{
     Button, ButtonConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry, DropdownMenuItem,
-    LinearProgressIndicator, LinearProgressIndicatorConfig, MenuState, RadioButton,
-    RadioButtonConfig, SegmentConfig, SegmentedButton, SegmentedButtonConfig, Slider, SliderConfig,
-    Switch, SwitchConfig, TextButton, TextField, TextFieldConfig,
+    FilledTonalButton, LinearProgressIndicator, LinearProgressIndicatorConfig, MenuState,
+    RadioButton, RadioButtonConfig, SegmentConfig, SegmentedButton, SegmentedButtonConfig, Slider,
+    SliderConfig, Switch, SwitchConfig, TextButton, TextField, TextFieldConfig,
 };
 use repose_ui::*;
 use web_time::{Duration, Instant};
@@ -108,7 +108,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let selection = remember(|| signal(Rc::new(BTreeSet::new())));
     let editor = Editor::new((*raw).clone(), (*selection).clone());
     let picked_weights = remember(|| signal(None::<Rc<Vec<u8>>>));
-    let size = remember(|| signal(ModelSize::DEFAULT));
+    let size = remember(|| signal(ModelSize::Small));
     let prelude = remember(|| signal(true));
     let instruments = remember(|| signal(String::new()));
     let hidden = remember(|| signal(Rc::new(HashSet::<u16>::new())));
@@ -629,12 +629,12 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
         None => String::from("Checkpoint: none"),
     };
 
-    let size_row = Row(Modifier::new().gap(Dp(2.0))).child(
+    let size_row = Row(Modifier::new().gap(Dp(2.0)).align_items(AlignItems::CENTER)).child(
         ModelSize::ALL
             .into_iter()
             .map(|candidate| {
                 let chosen = (*size).clone();
-                Row(Modifier::new().gap(Dp(4.0))).child((
+                Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
                     RadioButton(
                         size.get() == candidate,
                         move || chosen.set(candidate),
@@ -650,7 +650,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     // quantise panel with the editing commands. One row overflows at the
     // default window width.
     let toolbar = Column(Modifier::new().padding(Dp(8.0)).gap(Dp(6.0))).child(vec![
-        Row(Modifier::new().gap(Dp(8.0))).child(vec![
+        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(vec![
             TextButton(
                 Modifier::new(),
                 click(on_open.clone()),
@@ -665,7 +665,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             ),
             size_row,
             Spacer(),
-            Row(Modifier::new().gap(Dp(4.0))).child((
+            Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
                 Switch(
                     prelude.get(),
                     {
@@ -677,7 +677,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 Text("force ties").size(Sp(12.0)),
             )),
         ]),
-        Row(Modifier::new().gap(Dp(8.0))).child(vec![
+        Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child(vec![
             TextField(
                 Modifier::new().width(Dp(320.0)),
                 instruments.get(),
@@ -691,7 +691,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 },
             ),
             Spacer(),
-            Row(Modifier::new().gap(Dp(4.0))).child((
+            Row(Modifier::new().gap(Dp(4.0)).align_items(AlignItems::CENTER)).child((
                 Switch(
                     licence.get(),
                     {
@@ -700,7 +700,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                     },
                     SwitchConfig::default(),
                 ),
-                Text("weights are CC BY-NC").size(Sp(12.0)),
+                Text("accept CC BY-NC weights").size(Sp(12.0)),
             )),
             TextButton(
                 Modifier::new(),
@@ -708,7 +708,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 ButtonConfig::default(),
                 || Text("Download weights"),
             ),
-            TextButton(
+            Button(
                 Modifier::new(),
                 on_transcribe,
                 ButtonConfig::default(),
@@ -717,7 +717,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             TextButton(Modifier::new(), on_cancel, ButtonConfig::default(), || {
                 Text("Cancel")
             }),
-            TextButton(
+            FilledTonalButton(
                 Modifier::new(),
                 click(on_save.clone()),
                 ButtonConfig::default(),
