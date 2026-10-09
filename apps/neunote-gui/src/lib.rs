@@ -26,6 +26,9 @@ pub fn desktop_main() -> Result<(), Box<dyn std::error::Error>> {
         root(native::shell()),
         repose_platform::AppConfig {
             window_title: String::from("neunote"),
+            // The toolbar, the quantise panel and the footer all want width,
+            // and 1280x800 px is 1024 dp at a 1.25 scale.
+            window_size: (1600, 1000),
             ..Default::default()
         },
     )?)

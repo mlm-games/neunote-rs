@@ -8,8 +8,11 @@
 //! audio, weights, options), the job that runs it, and the views that show it:
 //! a piano roll, a track list, a progress line.
 
+mod edit;
 mod job;
 mod piano_roll;
+mod quantize;
+mod roll;
 mod tracks;
 mod view;
 

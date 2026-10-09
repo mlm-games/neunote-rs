@@ -39,6 +39,15 @@ impl Progress {
     }
 }
 
+/// Something a running transcription has to say.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    /// How far it has got.
+    Progress(Progress),
+    /// The notes the chunk that just finished finalized.
+    Notes(Vec<NoteEvent>),
+}
+
 /// Why a run stopped.
 #[derive(Debug)]
 pub enum Outcome {
@@ -117,6 +126,37 @@ pub fn transcribe_with(
     cancel: &AtomicBool,
     mut on_progress: impl FnMut(Progress),
 ) -> Result<Outcome, String> {
+    transcribe_streaming(
+        engine,
+        samples,
+        model_size,
+        instruments,
+        prelude_forcing,
+        cancel,
+        |event| {
+            if let Event::Progress(progress) = event {
+                on_progress(progress);
+            }
+        },
+    )
+}
+
+/// The same run, reporting what it has as it goes.
+///
+/// `Event::Notes` is a preview, not the answer: a note reported at the end of
+/// chunk *n* can still be cut short by one that closes in chunk *n + 1*, so a
+/// caller showing these replaces the list with `Outcome::Finished` rather than
+/// adding to it. What it buys is a run that shows its work, and a cancelled run
+/// that keeps everything it finished.
+pub fn transcribe_streaming(
+    engine: &mut dyn Engine,
+    samples: &[f32],
+    model_size: ModelSize,
+    instruments: &[GroupId],
+    prelude_forcing: bool,
+    cancel: &AtomicBool,
+    mut on_event: impl FnMut(Event),
+) -> Result<Outcome, String> {
     let segment = engine.segment_samples();
     if segment == 0 {
         return Err("engine reports a zero-length segment".to_owned());
@@ -187,11 +227,16 @@ pub fn transcribe_with(
             .apply(&actions, chunk_index as u32)
             .map_err(|error| format!("chunk {chunk_index}: {error}"))?;
 
-        on_progress(Progress {
+        on_event(Event::Progress(Progress {
             chunks_done: chunk_index + 1,
             chunks_total: total,
             finalized_through: seek_time,
-        });
+        }));
+
+        let finalized = assembler.closed_in(chunk_index as u32);
+        if !finalized.is_empty() {
+            on_event(Event::Notes(finalized));
+        }
     }
 
     if cancel.load(Ordering::SeqCst) {
@@ -408,14 +453,7 @@ mod tests {
             fn generate(&mut self, _: ChunkRequest<'_>) -> Result<Chunk, String> {
                 self.calls += 1;
                 let tokens = if self.calls == 1 {
-                    vec![
-                        TIE,
-                        shift(10),
-                        program(0),
-                        velocity(true),
-                        pitch(60),
-                        EOS,
-                    ]
+                    vec![TIE, shift(10), program(0), velocity(true), pitch(60), EOS]
                 } else {
                     vec![EOS]
                 };
@@ -575,6 +613,105 @@ mod tests {
     }
 
     #[test]
+    fn streaming_reports_the_notes_as_they_are_finalized() {
+        let mut engine = Scripted::new(vec![
+            vec![
+                TIE,
+                shift(10),
+                program(0),
+                velocity(true),
+                pitch(60),
+                shift(20),
+                velocity(false),
+                pitch(60),
+                EOS,
+            ],
+            vec![
+                TIE,
+                shift(10),
+                program(0),
+                velocity(true),
+                pitch(64),
+                shift(20),
+                velocity(false),
+                pitch(64),
+                EOS,
+            ],
+        ]);
+
+        let mut seen: Vec<Vec<NoteEvent>> = Vec::new();
+        let outcome = transcribe_streaming(
+            &mut engine,
+            &audio(2),
+            ModelSize::Medium,
+            &[],
+            true,
+            &AtomicBool::new(false),
+            |event| {
+                if let Event::Notes(notes) = event {
+                    seen.push(notes);
+                }
+            },
+        )
+        .unwrap();
+
+        // One note closed in chunk 0, one in chunk 1, and the list keeps the
+        // same order the final answer has.
+        assert_eq!(seen.len(), 2, "one report per chunk with notes in it");
+        assert_eq!(seen[0][0].pitch, 60);
+        assert_eq!(seen[1][0].pitch, 64);
+
+        let Outcome::Finished(notes) = outcome else {
+            panic!("a run that finished is not cancelled");
+        };
+        let streamed: Vec<NoteEvent> = seen.into_iter().flatten().collect();
+        assert_eq!(streamed, notes, "the preview matches the finished list");
+    }
+
+    #[test]
+    fn a_cancelled_run_still_handed_over_what_it_finished() {
+        let mut engine = Scripted::new(vec![
+            vec![
+                TIE,
+                shift(10),
+                program(0),
+                velocity(true),
+                pitch(60),
+                shift(20),
+                velocity(false),
+                pitch(60),
+                EOS,
+            ],
+            vec![TIE, shift(10), program(0), velocity(true), pitch(64), EOS],
+            vec![TIE, EOS],
+        ]);
+        let cancel = AtomicBool::new(false);
+        let mut seen: Vec<NoteEvent> = Vec::new();
+
+        let outcome = transcribe_streaming(
+            &mut engine,
+            &audio(3),
+            ModelSize::Medium,
+            &[],
+            true,
+            &cancel,
+            |event| match event {
+                Event::Progress(progress) if progress.chunks_done == 1 => {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+                Event::Notes(notes) => seen.extend(notes),
+                _ => {}
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(outcome, Outcome::Cancelled));
+        assert_eq!(engine.calls, 1, "the next chunk never started");
+        assert_eq!(seen.len(), 1, "the closed note from chunk 0 is kept");
+        assert_eq!(seen[0].pitch, 60);
+    }
+
+    #[test]
     fn progress_is_reported_for_every_chunk_in_order() {
         let mut engine = Scripted::new(vec![vec![TIE, EOS]; 3]);
         let mut seen = Vec::new();
@@ -635,7 +772,12 @@ mod tests {
             }
             fn generate(&mut self, request: ChunkRequest<'_>) -> Result<Chunk, String> {
                 Ok(Chunk {
-                    tokens: request.prompt.iter().copied().chain([TIE, shift(10), program(0), velocity(true), pitch(60)]).collect(),
+                    tokens: request
+                        .prompt
+                        .iter()
+                        .copied()
+                        .chain([TIE, shift(10), program(0), velocity(true), pitch(60)])
+                        .collect(),
                     stop: Stop::Budget,
                 })
             }

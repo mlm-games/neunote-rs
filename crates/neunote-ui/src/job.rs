@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use neunote_engine::Model;
 use neunote_pipeline::muscriptor::Muscriptor;
-use neunote_pipeline::{Outcome, transcribe_with};
+use neunote_pipeline::{Event, Outcome, transcribe_streaming};
 use neunote_types::{GroupId, ModelSize, NoteEvent};
 
 /// Where the checkpoint comes from. A native host has a path and lets the
@@ -33,7 +33,11 @@ pub(crate) enum Message {
         total: usize,
         finalized: f64,
     },
+    /// Notes a chunk finalized. A preview of the finished list, not a piece of
+    /// it: the run replaces this with the real answer.
+    Notes(Vec<NoteEvent>),
     Finished(Vec<NoteEvent>),
+    Cancelled,
     Failed(String),
 }
 
@@ -63,26 +67,31 @@ impl Job {
                 }
             };
 
-            let progress_out = outbox.clone();
-            let result = transcribe_with(
+            let out = outbox.clone();
+            let result = transcribe_streaming(
                 &mut engine,
                 &mono,
                 size,
                 &instruments,
                 prelude_forcing,
                 &cancel,
-                move |progress| {
-                    let _ = progress_out.send(Message::Progress {
-                        done: progress.chunks_done,
-                        total: progress.chunks_total,
-                        finalized: progress.finalized_through,
+                move |event| {
+                    let _ = out.send(match event {
+                        Event::Progress(progress) => Message::Progress {
+                            done: progress.chunks_done,
+                            total: progress.chunks_total,
+                            finalized: progress.finalized_through,
+                        },
+                        Event::Notes(notes) => Message::Notes(notes),
                     });
                 },
             );
 
+            // A cancelled run has already streamed the notes it finalized, so
+            // there is nothing more to send: the view keeps them.
             let message = match result {
                 Ok(Outcome::Finished(notes)) => Message::Finished(notes),
-                Ok(Outcome::Cancelled) => Message::Failed("cancelled".to_owned()),
+                Ok(Outcome::Cancelled) => Message::Cancelled,
                 Err(error) => Message::Failed(error),
             };
             let _ = outbox.send(message);
