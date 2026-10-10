@@ -1,0 +1,53 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+  workflow_dispatch:
+    inputs:
+      upload_releases:
+        description: "Upload releases"
+        required: true
+        default: true
+        type: boolean
+      mark_prerelease:
+        description: "Mark as prerelease"
+        required: true
+        default: false
+        type: boolean
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: release-bin-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: mlm-games/ci/.github/workflows/rust-app-release.yml@v1
+    with:
+      working-directory: apps/neunote-gui
+      app-name: 'Neunote'
+      app-slug: 'neunote'
+      bin-name: 'neunote-gui'
+      os-matrix: '["ubuntu-26.04","ubuntu-26.04-arm","macos-latest","windows-latest"]'
+      system-deps-linux: "libasound2-dev libudev-dev pkg-config libx11-dev libxcb1-dev libxi-dev libxinerama-dev libxrandr-dev libxcursor-dev libfontconfig-dev libwayland-dev libxkbcommon-dev"
+      include-android: false
+      include-web: false
+      generate-release-notes: false
+      changelog-path: ""
+      prerelease: ${{ inputs.mark_prerelease }}
+      bump-type: ${{ inputs.bump_type }}
+    secrets: inherit

@@ -49,16 +49,13 @@ pub(crate) fn shell() -> Shell {
         }),
 
         pick_audio: Rc::new(|done| {
-            let picked = rfd::FileDialog::new()
-                .add_filter("Audio", AUDIO)
-                .pick_file();
-            done(read_audio(picked));
+            done(read_audio(rlobkit_dialogs::blocking_open_file(
+                "Audio", AUDIO,
+            )));
         }),
 
         pick_weights: Rc::new(|done| {
-            let picked = rfd::FileDialog::new()
-                .add_filter("Checkpoint", &["gguf"])
-                .pick_file();
+            let picked = rlobkit_dialogs::blocking_open_file("Checkpoint", &["gguf"]);
             done(picked.and_then(|path| {
                 Some(LoadedWeights {
                     name: file_name(&path),
@@ -80,10 +77,7 @@ pub(crate) fn shell() -> Shell {
         }),
 
         save_midi: Rc::new(|name, bytes| {
-            let path = rfd::FileDialog::new()
-                .set_file_name(name)
-                .add_filter("MIDI", &["mid"])
-                .save_file()
+            let path = rlobkit_dialogs::blocking_save_file("MIDI", name, "mid")
                 .ok_or_else(|| String::from("save cancelled"))?;
             std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
             Ok(path.display().to_string())

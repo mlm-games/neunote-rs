@@ -1,0 +1,19 @@
+name: Rust CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: mlm-games/ci/.github/workflows/rust-app-ci.yml@v1
+    with:
+      working-directory: .
+      extra-checks: |
+        --target wasm32-unknown-unknown -p neunote-gui
+        --target wasm32-unknown-unknown -p neunote-ui

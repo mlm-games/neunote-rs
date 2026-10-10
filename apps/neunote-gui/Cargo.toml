@@ -25,7 +25,7 @@ clipawl = { version = "0.4", features = ["async-io", "linux-wayland", "linux-x11
 cpal = "0.18"
 env_logger = "0.11"
 log = "0.4"
-rfd = "0.17"
+rlobkit-dialogs = "0.6"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 hex = "0.4"
