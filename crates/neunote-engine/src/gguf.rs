@@ -165,7 +165,8 @@ impl Gguf {
         let bytes = std::fs::read(path).map_err(|source| {
             Error::Checkpoint(format!("cannot read {}: {source}", path.display()))
         })?;
-        Self::parse(bytes).map_err(|error| Error::Checkpoint(format!("{}: {error}", path.display())))
+        Self::parse(bytes)
+            .map_err(|error| Error::Checkpoint(format!("{}: {error}", path.display())))
     }
 
     pub(crate) fn parse(bytes: Vec<u8>) -> Result<Self, Error> {
@@ -262,10 +263,9 @@ impl Gguf {
     /// ggml stores `dims[0]` contiguous, so a weight the model multiplies as
     /// `[rows, reduction]` must arrive in that order.
     pub fn weight(&self, name: &str, dims: &[usize]) -> Result<Weight, Error> {
-        let tensor = self
-            .tensors
-            .get(name)
-            .ok_or_else(|| Error::Checkpoint(format!("tensor '{name}' is not in the checkpoint")))?;
+        let tensor = self.tensors.get(name).ok_or_else(|| {
+            Error::Checkpoint(format!("tensor '{name}' is not in the checkpoint"))
+        })?;
 
         if tensor.n_dims != dims.len() || tensor.dims[..dims.len()] != *dims {
             let found = &tensor.dims[..tensor.n_dims];
@@ -278,9 +278,7 @@ impl Gguf {
             .data_start
             .checked_add(tensor.offset)
             .filter(|start| start + tensor.nbytes() <= self.bytes.len())
-            .ok_or_else(|| {
-                Error::Checkpoint(format!("tensor '{name}' points outside the file"))
-            })?;
+            .ok_or_else(|| Error::Checkpoint(format!("tensor '{name}' points outside the file")))?;
 
         let raw = &self.bytes[start..start + tensor.nbytes()];
         let count = tensor.elements();
@@ -322,7 +320,9 @@ impl Gguf {
     /// whose row count is not in the metadata -- the conditioner tables -- this
     /// is where the row count comes from.
     pub fn shape(&self, name: &str) -> Option<Vec<usize>> {
-        self.tensors.get(name).map(|tensor| tensor.dims[..tensor.n_dims].to_vec())
+        self.tensors
+            .get(name)
+            .map(|tensor| tensor.dims[..tensor.n_dims].to_vec())
     }
 
     #[cfg(test)]
@@ -342,7 +342,8 @@ fn align_up(value: u64, alignment: u64) -> u64 {
 fn read_value(cursor: &mut Cursor<'_>) -> Result<Value, Error> {
     let kind = cursor.u32()?;
 
-    let bad = |kind: u32| Error::Checkpoint(format!("metadata value type {kind} is not a GGUF type"));
+    let bad =
+        |kind: u32| Error::Checkpoint(format!("metadata value type {kind} is not a GGUF type"));
 
     match kind {
         TYPE_BOOL => Ok(Value::Bool(cursor.u8()? != 0)),
@@ -361,7 +362,9 @@ fn read_value(cursor: &mut Cursor<'_>) -> Result<Value, Error> {
             let element = cursor.u32()?;
             let len = cursor.u64()?;
             if element == TYPE_ARRAY {
-                return Err(Error::Checkpoint("nested arrays are not a GGUF type".to_owned()));
+                return Err(Error::Checkpoint(
+                    "nested arrays are not a GGUF type".to_owned(),
+                ));
             }
             for _ in 0..len {
                 read_value_payload(cursor, element)?;
@@ -406,7 +409,9 @@ impl<'a> Cursor<'a> {
             .at
             .checked_add(count)
             .filter(|end| *end <= self.bytes.len())
-            .ok_or_else(|| Error::Checkpoint("the file ends in the middle of a field".to_owned()))?;
+            .ok_or_else(|| {
+                Error::Checkpoint("the file ends in the middle of a field".to_owned())
+            })?;
         let slice = &self.bytes[self.at..end];
         self.at = end;
         Ok(slice)

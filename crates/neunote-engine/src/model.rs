@@ -10,10 +10,10 @@
 
 use rayon::prelude::*;
 
+use crate::Error;
 use crate::gguf::Weight;
 use crate::ops;
 use crate::stft;
-use crate::Error;
 
 /// Architecture and front-end constants, all read from the checkpoint's
 /// `muscriptor.*` metadata rather than written down here.
@@ -273,7 +273,9 @@ impl Model {
         spectrum: &[f32],
         n_samples: usize,
     ) -> Result<Vec<f32>, Error> {
-        Ok(self.encode_conditioning_stages(spectrum, n_samples)?.embedding)
+        Ok(self
+            .encode_conditioning_stages(spectrum, n_samples)?
+            .embedding)
     }
 
     /// The same front-end, keeping every stage.
@@ -315,7 +317,13 @@ impl Model {
         }
 
         let mut mel = vec![0.0f32; hp.n_mels * frames];
-        ops::matmul(&mut mel, &self.weights.mel_filterbank, &by_bin, frames, None);
+        ops::matmul(
+            &mut mel,
+            &self.weights.mel_filterbank,
+            &by_bin,
+            frames,
+            None,
+        );
 
         let mut logmel = mel.clone();
         for value in logmel.iter_mut() {
@@ -430,7 +438,9 @@ impl Model {
         mut trace: Option<&mut Trace>,
     ) -> Result<Vec<f32>, Error> {
         if tokens.is_empty() {
-            return Err(Error::Invalid("a forward pass needs at least one token".into()));
+            return Err(Error::Invalid(
+                "a forward pass needs at least one token".into(),
+            ));
         }
 
         let Model {
@@ -492,7 +502,9 @@ impl Model {
 
             let mut column = n_frames;
 
-            let dataset = weights.dataset_name.row_as_f32(NULL_CONDITIONING_ROW as usize, dim);
+            let dataset = weights
+                .dataset_name
+                .row_as_f32(NULL_CONDITIONING_ROW as usize, dim);
             for index in 0..dim {
                 x[index * n_new + column] = dataset[index];
             }
@@ -507,7 +519,11 @@ impl Model {
             }
         }
 
-        let first_token = if prepended { n_frames + 1 + n_instrument } else { 0 };
+        let first_token = if prepended {
+            n_frames + 1 + n_instrument
+        } else {
+            0
+        };
         for (offset, token) in tokens.iter().enumerate() {
             let embedding = weights.token_embedding.row_as_f32(*token as usize, dim);
             for index in 0..dim {
@@ -535,7 +551,11 @@ impl Model {
         for layer in 0..hp.n_layer {
             // Only layer 0 is traced, and asking per layer rather than branching
             // per stage keeps the trace out of the layer's own code.
-            let layer_trace = if layer == 0 { trace.as_deref_mut() } else { None };
+            let layer_trace = if layer == 0 {
+                trace.as_deref_mut()
+            } else {
+                None
+            };
             block(
                 &mut x,
                 &weights.layers[layer],
@@ -647,7 +667,17 @@ fn block(
     shape: &Geometry,
     mut trace: Option<&mut Trace>,
 ) {
-    let Geometry { dim, head, head_dim, ffn_dim, norm_eps, past, new, kv, ctx } = *shape;
+    let Geometry {
+        dim,
+        head,
+        head_dim,
+        ffn_dim,
+        norm_eps,
+        past,
+        new,
+        kv,
+        ctx,
+    } = *shape;
 
     let normed = ops::layer_norm(
         x,
@@ -818,8 +848,14 @@ mod tests {
             for index in 0..half {
                 let exponent = index as f32 / (half - 1) as f32;
                 let phase = position as f32 / 10_000.0f32.powf(exponent);
-                assert!((row[index] - phase.cos()).abs() < 1e-5, "cos at {position},{index}");
-                assert!((row[half + index] - phase.sin()).abs() < 1e-5, "sin at {position},{index}");
+                assert!(
+                    (row[index] - phase.cos()).abs() < 1e-5,
+                    "cos at {position},{index}"
+                );
+                assert!(
+                    (row[half + index] - phase.sin()).abs() < 1e-5,
+                    "sin at {position},{index}"
+                );
             }
         }
     }

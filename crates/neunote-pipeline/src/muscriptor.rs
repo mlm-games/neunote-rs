@@ -56,7 +56,12 @@ impl Engine for Muscriptor {
 
         let chunk: EngineChunk = self
             .model
-            .generate(&conditioning, request.prompt, MAX_TOKENS_PER_CHUNK, eos_id())
+            .generate(
+                &conditioning,
+                request.prompt,
+                MAX_TOKENS_PER_CHUNK,
+                eos_id(),
+            )
             .map_err(|error| error.to_string())?;
 
         Ok(Chunk {

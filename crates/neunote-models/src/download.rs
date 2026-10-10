@@ -382,11 +382,6 @@ pub async fn fetch_entry(
 mod tests {
     use super::*;
 
-
-
-
-
-
     #[test]
     fn the_default_cache_is_under_a_neunote_models_directory() {
         let dir = Cache::platform_default().dir().to_path_buf();

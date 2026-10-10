@@ -33,10 +33,7 @@ pub enum TrackError {
     /// Two programs sharing a channel would each emit a program change, and
     /// only the last one read would apply, so one instrument would play in the
     /// other's voice. Rather than silently corrupt the file, refuse.
-    TooManyInstruments {
-        instruments: usize,
-        channels: usize,
-    },
+    TooManyInstruments { instruments: usize, channels: usize },
 }
 
 impl std::fmt::Display for TrackError {
@@ -151,11 +148,7 @@ pub fn group_by_program(notes: &[NoteEvent]) -> Result<Vec<Track>, TrackError> {
     }
 
     if has_drums {
-        let owned = notes
-            .iter()
-            .filter(|note| note.is_drum)
-            .copied()
-            .collect();
+        let owned = notes.iter().filter(|note| note.is_drum).copied().collect();
 
         tracks.push(Track {
             program: DRUM_PROGRAM,
@@ -503,7 +496,11 @@ mod tests {
             for byte in &out[..out.len() - 1] {
                 assert_ne!(byte & 0x80, 0, "missing continuation bit in {out:02X?}");
             }
-            assert_eq!(out[out.len() - 1] & 0x80, 0, "trailing bit set in {out:02X?}");
+            assert_eq!(
+                out[out.len() - 1] & 0x80,
+                0,
+                "trailing bit set in {out:02X?}"
+            );
         }
     }
 

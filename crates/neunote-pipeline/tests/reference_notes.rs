@@ -35,7 +35,11 @@ fn weights() -> PathBuf {
 
 fn refs() -> Vec<f32> {
     let path = workspace().join("testdata/refs/small.bin");
-    assert!(path.exists(), "the reference dump is not at {}", path.display());
+    assert!(
+        path.exists(),
+        "the reference dump is not at {}",
+        path.display()
+    );
 
     let bytes = std::fs::read(path).unwrap();
     assert_eq!(&bytes[..8], b"NNEEDMP\0");
@@ -81,8 +85,7 @@ fn refs() -> Vec<f32> {
 
 /// The fixture, as 16 kHz mono f32.
 fn fixture() -> Vec<f32> {
-    let bytes =
-        std::fs::read(workspace().join("testdata/audio/fixture_3chunks_16k.wav")).unwrap();
+    let bytes = std::fs::read(workspace().join("testdata/audio/fixture_3chunks_16k.wav")).unwrap();
 
     let mut at = 12usize;
     let mut format = 0u16;

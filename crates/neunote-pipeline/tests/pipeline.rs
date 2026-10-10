@@ -435,5 +435,8 @@ fn a_file_that_is_not_a_checkpoint_is_refused_rather_than_read_as_one() {
         Err(error) => error,
         Ok(_) => panic!("a file that is not a checkpoint must not load"),
     };
-    assert!(error.contains("checkpoint") || error.contains("GGUF"), "got {error}");
+    assert!(
+        error.contains("checkpoint") || error.contains("GGUF"),
+        "got {error}"
+    );
 }

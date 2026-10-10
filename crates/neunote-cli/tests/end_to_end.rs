@@ -110,7 +110,10 @@ fn transcribing_refuses_an_unreadable_model_rather_than_writing_an_empty_file() 
         &models,
     );
 
-    assert!(!ok, "an unreadable checkpoint is an error, not a silent success");
+    assert!(
+        !ok,
+        "an unreadable checkpoint is an error, not a silent success"
+    );
     assert!(
         stderr.contains("GGUF") || stderr.contains("checkpoint"),
         "the error must name the real cause, got: {stderr}"

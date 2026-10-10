@@ -162,7 +162,11 @@ fn vector_rows(
 /// difference is small but it is free to match.
 pub fn layer_norm(x: &[f32], weight: &[f32], bias: &[f32], eps: f32, columns: usize) -> Vec<f32> {
     let rows = x.len() / columns;
-    assert_eq!(weight.len(), rows, "the affine scale is per reduced element");
+    assert_eq!(
+        weight.len(),
+        rows,
+        "the affine scale is per reduced element"
+    );
     assert_eq!(bias.len(), rows, "the affine shift is per reduced element");
 
     let mut mean = vec![0.0f32; columns];
@@ -190,17 +194,20 @@ pub fn layer_norm(x: &[f32], weight: &[f32], bias: &[f32], eps: f32, columns: us
     let mut out = vec![0.0f32; x.len()];
     let (rows_per_block, blocks) = row_blocks(&mut out, rows, columns);
 
-    blocks.into_par_iter().enumerate().for_each(|(block, target)| {
-        let first = block * rows_per_block;
-        for (offset, line) in target.chunks_mut(columns).enumerate() {
-            let row = first + offset;
-            for (column, slot) in line.iter_mut().enumerate() {
-                *slot =
-                    (x[row * columns + column] - mean[column]) * scale[column] * weight[row]
-                        + bias[row];
+    blocks
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(block, target)| {
+            let first = block * rows_per_block;
+            for (offset, line) in target.chunks_mut(columns).enumerate() {
+                let row = first + offset;
+                for (column, slot) in line.iter_mut().enumerate() {
+                    *slot =
+                        (x[row * columns + column] - mean[column]) * scale[column] * weight[row]
+                            + bias[row];
+                }
             }
-        }
-    });
+        });
 
     out
 }
@@ -332,7 +339,9 @@ mod tests {
                 .map(|index| ((index * 37 % 101) as f32 - 50.0) / 50.0)
                 .collect(),
         );
-        let x: Vec<f32> = (0..cols * columns).map(|index| (index % 17) as f32).collect();
+        let x: Vec<f32> = (0..cols * columns)
+            .map(|index| (index % 17) as f32)
+            .collect();
         let mut y = vec![0.0f32; rows * columns];
 
         matmul(&mut y, &w, &x, columns, None);
@@ -346,7 +355,12 @@ mod tests {
             }
         }
         for n in 0..columns {
-            assert!(close(y[n], expected[n], 1e-4), "{} vs {}", y[n], expected[n]);
+            assert!(
+                close(y[n], expected[n], 1e-4),
+                "{} vs {}",
+                y[n],
+                expected[n]
+            );
         }
     }
 
@@ -380,7 +394,10 @@ mod tests {
             assert!(close(mean, 0.0, 1e-5), "column {column} mean {mean}");
 
             let variance = line.iter().map(|v| v * v).sum::<f32>() / rows as f32;
-            assert!(close(variance, 1.0, 1e-4), "column {column} variance {variance}");
+            assert!(
+                close(variance, 1.0, 1e-4),
+                "column {column} variance {variance}"
+            );
         }
     }
 
@@ -396,15 +413,23 @@ mod tests {
 
         // Column 0 is [3, 1, 1].
         let mean: f32 = 5.0 / 3.0;
-        let variance = [(3.0 - mean).powi(2), (1.0 - mean).powi(2), (1.0 - mean).powi(2)]
-            .iter()
-            .sum::<f32>()
+        let variance = [
+            (3.0 - mean).powi(2),
+            (1.0 - mean).powi(2),
+            (1.0 - mean).powi(2),
+        ]
+        .iter()
+        .sum::<f32>()
             / 3.0;
         let want = (1.0 - mean) / variance.sqrt() * 2.0 + 1.0;
         assert!(close(out[4], want, 1e-5), "{} vs {want}", out[4]);
 
         let want_first = (3.0 - mean) / variance.sqrt();
-        assert!(close(out[0], want_first, 1e-5), "{} vs {want_first}", out[0]);
+        assert!(
+            close(out[0], want_first, 1e-5),
+            "{} vs {want_first}",
+            out[0]
+        );
     }
 
     #[test]
@@ -412,9 +437,8 @@ mod tests {
         // The two forms disagree by ~1e-3 in the middle, which is more than
         // tolerance noise and less than a wrong activation.
         let tanh_approx = |x: f32| {
-            0.5 * x * (1.0 + ((2.0 / std::f32::consts::PI).sqrt()
-                * (x + 0.044715 * x * x * x))
-                .tanh())
+            0.5 * x
+                * (1.0 + ((2.0 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x * x * x)).tanh())
         };
 
         let mut differs = false;
@@ -434,7 +458,10 @@ mod tests {
 
         assert_eq!(gelu_erf(0.0), 0.0);
         assert!(gelu_erf(-40.0).abs() < 1e-6, "negative tail is zero");
-        assert!((gelu_erf(40.0) - 40.0).abs() < 1e-5, "positive tail is identity");
+        assert!(
+            (gelu_erf(40.0) - 40.0).abs() < 1e-5,
+            "positive tail is identity"
+        );
     }
 
     #[test]
@@ -454,11 +481,8 @@ mod tests {
         // 3 new queries over 5 keys with 2 already in the cache.
         let mask = bottom_right_causal_mask(2, 3, 5);
 
-        let row = |i: usize| -> Vec<bool> {
-            (0..5)
-                .map(|key| mask[i * 5 + key].is_finite())
-                .collect()
-        };
+        let row =
+            |i: usize| -> Vec<bool> { (0..5).map(|key| mask[i * 5 + key].is_finite()).collect() };
 
         assert_eq!(row(0), vec![true, true, true, false, false]);
         assert_eq!(row(1), vec![true, true, true, true, false]);

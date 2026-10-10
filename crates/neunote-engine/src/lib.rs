@@ -78,8 +78,8 @@ impl Model {
     /// picked rather than opened by path. Past the bytes this is the same read
     /// as [`Model::load`].
     pub fn from_bytes(bytes: Vec<u8>, label: &str) -> Result<Self, Error> {
-        let file = Gguf::parse(bytes)
-            .map_err(|error| Error::Checkpoint(format!("{label}: {error}")))?;
+        let file =
+            Gguf::parse(bytes).map_err(|error| Error::Checkpoint(format!("{label}: {error}")))?;
         Self::from_gguf(file, label)
     }
 
@@ -116,7 +116,9 @@ impl Model {
         };
 
         if hp.hop_length == 0 || hp.n_fft == 0 {
-            return Err(Error::Checkpoint("the checkpoint has a degenerate STFT".into()));
+            return Err(Error::Checkpoint(
+                "the checkpoint has a degenerate STFT".into(),
+            ));
         }
 
         let dim = hp.dim;
@@ -179,7 +181,9 @@ fn instrument_rows(file: &Gguf, name: &str, dim: usize) -> Result<Weight, Error>
         .shape(name)
         .ok_or_else(|| Error::Checkpoint(format!("tensor '{name}' is not in the checkpoint")))?;
     if rows.len() != 2 || rows[0] != dim {
-        return Err(Error::Checkpoint(format!("tensor '{name}' has shape {rows:?}")));
+        return Err(Error::Checkpoint(format!(
+            "tensor '{name}' has shape {rows:?}"
+        )));
     }
     file.weight(name, &[dim, rows[1]])
 }
@@ -192,7 +196,9 @@ fn dataset_rows(file: &Gguf, dim: usize) -> Result<Weight, Error> {
         .shape(name)
         .ok_or_else(|| Error::Checkpoint(format!("tensor '{name}' is not in the checkpoint")))?;
     if rows.len() != 2 || rows[0] != dim {
-        return Err(Error::Checkpoint(format!("tensor '{name}' has shape {rows:?}")));
+        return Err(Error::Checkpoint(format!(
+            "tensor '{name}' has shape {rows:?}"
+        )));
     }
     file.weight(name, &[dim, rows[1]])
 }

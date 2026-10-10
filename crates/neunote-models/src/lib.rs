@@ -213,9 +213,7 @@ pub fn verify_bytes(bytes: &[u8], expected: &ModelEntry) -> Result<(), ModelErro
 #[cfg(not(target_arch = "wasm32"))]
 mod download;
 #[cfg(not(target_arch = "wasm32"))]
-pub use download::{
-    Cache, base_url, cache, fetch, fetch_entry, verify_against,
-};
+pub use download::{Cache, base_url, cache, fetch, fetch_entry, verify_against};
 
 #[cfg(test)]
 mod tests {
@@ -249,7 +247,10 @@ mod tests {
             sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         };
         let error = verify_bytes(&[1u8, 2, 3, 4], &expected).unwrap_err();
-        assert!(matches!(error, ModelError::Checksum { .. }), "got {error:?}");
+        assert!(
+            matches!(error, ModelError::Checksum { .. }),
+            "got {error:?}"
+        );
     }
 
     #[test]
@@ -323,5 +324,4 @@ mod tests {
         status.downloaded_bytes = 300;
         assert_eq!(status.fraction(), 1.0, "clamped");
     }
-
-    }
+}

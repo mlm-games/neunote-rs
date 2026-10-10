@@ -42,7 +42,9 @@ pub fn magnitudes(
     window: &[f32],
 ) -> Result<Vec<f32>, Error> {
     if n_fft == 0 || hop_length == 0 {
-        return Err(Error::Checkpoint("STFT needs a positive n_fft and hop_length".into()));
+        return Err(Error::Checkpoint(
+            "STFT needs a positive n_fft and hop_length".into(),
+        ));
     }
     if window.len() != n_fft {
         return Err(Error::Checkpoint(format!(
@@ -197,10 +199,7 @@ mod tests {
 
     fn periodic_hann(size: usize) -> Vec<f32> {
         (0..size)
-            .map(|i| {
-                0.5
-                    - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / size as f32).cos()
-            })
+            .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / size as f32).cos())
             .collect()
     }
 
@@ -218,7 +217,8 @@ mod tests {
         for (k, (want_re, want_im)) in naive_dft(&signal).iter().enumerate() {
             let tolerance = 1e-3 * want_re.abs().max(want_im.abs()).max(1.0);
             assert!(
-                (out[k * 2] - want_re).abs() <= tolerance && (out[k * 2 + 1] - want_im).abs() <= tolerance,
+                (out[k * 2] - want_re).abs() <= tolerance
+                    && (out[k * 2 + 1] - want_im).abs() <= tolerance,
                 "bin {k}: got ({}, {}), want ({want_re}, {want_im})",
                 out[k * 2],
                 out[k * 2 + 1]

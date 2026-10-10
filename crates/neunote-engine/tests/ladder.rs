@@ -25,10 +25,10 @@ fn workspace() -> PathBuf {
 }
 
 fn refs_path() -> PathBuf {
-    std::env::var_os("NEUNOTE_REF_DIR")
-        .map_or_else(|| workspace().join("testdata/refs/small.bin"), |dir| {
-            PathBuf::from(dir).join("small.bin")
-        })
+    std::env::var_os("NEUNOTE_REF_DIR").map_or_else(
+        || workspace().join("testdata/refs/small.bin"),
+        |dir| PathBuf::from(dir).join("small.bin"),
+    )
 }
 
 fn weights_path() -> PathBuf {
@@ -63,11 +63,7 @@ impl Refs {
             slice
         };
 
-        assert_eq!(
-            take(8),
-            b"NNEEDMP\0",
-            "not a neunote reference dump"
-        );
+        assert_eq!(take(8), b"NNEEDMP\0", "not a neunote reference dump");
         let count = u32::from_le_bytes(take(4).try_into().unwrap()) as usize;
 
         let mut tensors = HashMap::with_capacity(count);
@@ -281,7 +277,11 @@ fn model() -> Model {
 
 fn refs() -> Refs {
     let path = refs_path();
-    assert!(path.exists(), "the reference dump is not at {}", path.display());
+    assert!(
+        path.exists(),
+        "the reference dump is not at {}",
+        path.display()
+    );
     Refs::load(&path)
 }
 
@@ -487,7 +487,9 @@ fn step_2_the_prefill_logits_match() {
     let mut model = model();
     let initial = model.hparams().initial_token_id;
 
-    let conditioning = model.encode_audio(&first_chunk()).expect("encoding the fixture");
+    let conditioning = model
+        .encode_audio(&first_chunk())
+        .expect("encoding the fixture");
     let logits = model.prefill(&conditioning, &[initial]).expect("prefill");
 
     let hp = *model.hparams();
@@ -511,7 +513,9 @@ fn step_2_the_prefill_logits_match() {
 fn step_2_a_selected_instrument_changes_the_prefix_and_the_logits() {
     let refs = refs();
     let mut model = model();
-    let conditioning = model.encode_audio(&first_chunk()).expect("encoding the fixture");
+    let conditioning = model
+        .encode_audio(&first_chunk())
+        .expect("encoding the fixture");
     let tokens = [model.hparams().initial_token_id];
 
     let unconditional = model.prefill(&conditioning, &tokens).expect("prefill");
@@ -605,7 +609,9 @@ fn step_2_layer_zero_matches_stage_by_stage() {
     let hp = *model.hparams();
     let n_new = 501 + 1 + 1 + 1;
 
-    let conditioning = model.encode_audio(&first_chunk()).expect("encoding the fixture");
+    let conditioning = model
+        .encode_audio(&first_chunk())
+        .expect("encoding the fixture");
     let mut trace = neunote_engine::model::Trace::default();
     let logits = model
         .prefill_traced(&conditioning, &[hp.initial_token_id], &mut trace)
@@ -658,13 +664,15 @@ fn the_position_table_matches() {
     let hp = model.hparams();
 
     let want = refs.data("position_table");
-// The table is `[position, dim]`: positions are rows, and the dump stores them
+    // The table is `[position, dim]`: positions are rows, and the dump stores them
     // the same way round.
     assert_eq!(refs.shape("position_table"), &[16, hp.dim]);
 
     let got = neunote_engine::model::position_table(16, hp.dim, hp.max_period);
     assert!(
-        got.iter().zip(want).all(|(a, b)| a.to_bits() == b.to_bits()),
+        got.iter()
+            .zip(want)
+            .all(|(a, b)| a.to_bits() == b.to_bits()),
         "the position table is built differently"
     );
 }

@@ -36,7 +36,8 @@ fn an_impulse_lands_where_the_sample_rate_ratio_says_it_should() {
 
         let out = resample(input, from_rate);
         let ideal = impulse_at as f64 * f64::from(TRANSCRIPTION_SAMPLE_RATE) / f64::from(from_rate);
-        let drift_ms = (peak_index(&out) as f64 - ideal) * 1000.0 / f64::from(TRANSCRIPTION_SAMPLE_RATE);
+        let drift_ms =
+            (peak_index(&out) as f64 - ideal) * 1000.0 / f64::from(TRANSCRIPTION_SAMPLE_RATE);
 
         // Half a millisecond is a fifth of a frame; the reference's own mel
         // grid is 10 ms, so anything near a frame's worth of drift would move
@@ -62,12 +63,10 @@ fn a_click_keeps_its_rise_within_a_fraction_of_a_frame() {
 
     let out = resample(input, from_rate);
     let ideal = click_at as f64 * f64::from(TRANSCRIPTION_SAMPLE_RATE) / f64::from(from_rate);
-    let drift_ms = (peak_index(&out) as f64 - ideal) * 1000.0 / f64::from(TRANSCRIPTION_SAMPLE_RATE);
+    let drift_ms =
+        (peak_index(&out) as f64 - ideal) * 1000.0 / f64::from(TRANSCRIPTION_SAMPLE_RATE);
 
-    assert!(
-        drift_ms.abs() < 0.5,
-        "click drifted {drift_ms:.3} ms"
-    );
+    assert!(drift_ms.abs() < 0.5, "click drifted {drift_ms:.3} ms");
 }
 
 #[test]
@@ -98,9 +97,6 @@ fn an_input_shorter_than_one_block_is_still_resampled() {
     // A file shorter than the block size takes the zero-padded path; it must
     // still come back at the right length rather than empty.
     let out = resample(vec![0.25f32; 100], 44_100);
-    assert!(
-        !out.is_empty(),
-        "a 100-sample clip must not vanish"
-    );
+    assert!(!out.is_empty(), "a 100-sample clip must not vanish");
     assert!(out.len() <= 64, "got {} samples", out.len());
 }
