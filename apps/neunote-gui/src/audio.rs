@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 use neunote_types::NoteEvent;
 
@@ -56,12 +56,19 @@ impl Device {
 
         let stream = match supported.sample_format() {
             SampleFormat::F32 => build::<f32>(&device, config, channels, rate, Arc::clone(&shared)),
+            SampleFormat::F64 => build::<f64>(&device, config, channels, rate, Arc::clone(&shared)),
             SampleFormat::I16 => build::<i16>(&device, config, channels, rate, Arc::clone(&shared)),
             SampleFormat::U16 => build::<u16>(&device, config, channels, rate, Arc::clone(&shared)),
             SampleFormat::I32 => build::<i32>(&device, config, channels, rate, Arc::clone(&shared)),
+            SampleFormat::I64 => build::<i64>(&device, config, channels, rate, Arc::clone(&shared)),
+            SampleFormat::U64 => build::<u64>(&device, config, channels, rate, Arc::clone(&shared)),
             _ => return None,
         }
         .ok()?;
+
+        // cpal hands the stream back paused; without this the callback never runs
+        // and play() writes into a stream nobody is reading.
+        stream.play().ok()?;
 
         Some(Self {
             shared,
