@@ -66,9 +66,9 @@ pub(crate) fn shell() -> Shell {
             input(".gguf", picked);
         }),
 
-        save_midi: Rc::new(|name, bytes| {
+        save_midi: Rc::new(|name, bytes, done| {
             download(name, bytes);
-            Ok(format!("downloaded {name}"))
+            done(Ok(format!("downloaded {name}")));
         }),
     }
 }

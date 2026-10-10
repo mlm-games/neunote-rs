@@ -77,7 +77,8 @@ pub struct LoadedWeights {
 
 type Picked = Rc<dyn Fn(Option<LoadedAudio>)>;
 type PickedWeights = Rc<dyn Fn(Option<LoadedWeights>)>;
-type Saver = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
+type Saved = Rc<dyn Fn(Result<String, String>)>;
+type Saver = Rc<dyn Fn(&str, &[u8], Saved)>;
 type Copier = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
 type Progress = Rc<dyn Fn(u64, u64)>;
 type Bytes = Rc<dyn Fn(Result<Rc<Vec<u8>>, String>)>;
@@ -673,13 +674,19 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 .unwrap_or_else(|| String::from("neunote.mid"));
 
             match midi_bytes(&notes, bpm.get().bpm) {
-                Ok(bytes) => match saver(&name, &bytes) {
-                    Ok(written) => {
-                        let count = notes.len();
-                        status.set(format!("wrote {written} ({count} notes)"));
-                    }
-                    Err(error) => status.set(format!("cannot write MIDI: {error}")),
-                },
+                Ok(bytes) => {
+                    let count = notes.len();
+                    let status = status.clone();
+                    status.set(format!("saving {name}…"));
+                    saver(
+                        &name,
+                        &bytes,
+                        Rc::new(move |result| match result {
+                            Ok(written) => status.set(format!("wrote {written} ({count} notes)")),
+                            Err(error) => status.set(format!("cannot write MIDI: {error}")),
+                        }),
+                    );
+                }
                 Err(error) => status.set(format!("cannot build MIDI: {error}")),
             }
         })

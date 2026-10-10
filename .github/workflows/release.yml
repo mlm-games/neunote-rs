@@ -45,7 +45,8 @@ jobs:
       bin-name: 'neunote-gui'
       os-matrix: '["ubuntu-26.04","ubuntu-26.04-arm","macos-latest","windows-latest"]'
       system-deps-linux: "libasound2-dev libudev-dev pkg-config libx11-dev libxcb1-dev libxi-dev libxinerama-dev libxrandr-dev libxcursor-dev libfontconfig-dev libwayland-dev libxkbcommon-dev"
-      include-android: false
+      include-android: true
+      include-universal: true
       include-web: false
       generate-release-notes: false
       changelog-path: ""

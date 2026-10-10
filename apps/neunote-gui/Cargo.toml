@@ -20,12 +20,67 @@ neunote-types = { path = "../../crates/neunote-types" }
 neunote-models = { path = "../../crates/neunote-models" }
 repose-platform = "0.31"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 clipawl = { version = "0.4", features = ["async-io", "linux-wayland", "linux-x11"] }
 cpal = "0.18"
 env_logger = "0.11"
 log = "0.4"
 rlobkit-dialogs = "0.6"
+
+[target.'cfg(target_os = "android")'.dependencies]
+cpal = "0.18"
+futures-lite = "2"
+game-utils = "0.4"
+log = "0.4"
+repose-core = "0.31"
+rlobkit-app-events = "0.6"
+rlobkit-dialogs = "0.6"
+winit = { version = "0.30", features = ["android-native-activity"] }
+
+[package.metadata.android]
+package = "org.mlm.neunote"
+apk_name = "neunote"
+build_targets = [
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+    "x86_64-linux-android",
+    "i686-linux-android",
+]
+split_per_abi = true
+resources = "others/packaging/res"
+
+[package.metadata.android.application]
+label = "Neunote"
+fullscreen = false
+icon = "@drawable/ic_launcher_monochrome"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 34
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.application.activity]]
+name = "android.app.NativeActivity"
+exported = true
+launch_mode = "singleTask"
+config_changes = "orientation|keyboardHidden|screenSize|uiMode"
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.MAIN"]
+categories = ["android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+mime_type = "audio/*"
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+mime_type = "audio/*"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 hex = "0.4"

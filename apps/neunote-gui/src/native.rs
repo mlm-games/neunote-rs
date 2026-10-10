@@ -76,11 +76,14 @@ pub(crate) fn shell() -> Shell {
             Ok(format!("{} bytes of MIDI on the clipboard", bytes.len()))
         }),
 
-        save_midi: Rc::new(|name, bytes| {
-            let path = rlobkit_dialogs::blocking_save_file("MIDI", name, "mid")
-                .ok_or_else(|| String::from("save cancelled"))?;
-            std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
-            Ok(path.display().to_string())
+        save_midi: Rc::new(|name, bytes, done| {
+            let written = rlobkit_dialogs::blocking_save_file("MIDI", name, "mid")
+                .ok_or_else(|| String::from("save cancelled"))
+                .and_then(|path| {
+                    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+                    Ok(path.display().to_string())
+                });
+            done(written);
         }),
     }
 }
