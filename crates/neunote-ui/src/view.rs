@@ -1091,7 +1091,11 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             .background(theme().surface_container_low),
     )
     .child((
-        Box(Modifier::new().fill_max_height().flex_grow(1.0)).child(list),
+        Box(Modifier::new()
+            .fill_max_height()
+            .flex_grow(1.0)
+            .fill_max_width())
+        .child(list),
         inspector,
     ));
     // Hearing what the model made of the recording, next to the recording.
@@ -1206,7 +1210,13 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     };
 
     let view_now = viewport.get();
-    let footer = Row(Modifier::new().padding(Dp(8.0)).gap(Dp(12.0))).child((
+    let footer = Row(Modifier::new()
+        .padding(Dp(8.0))
+        .gap(Dp(12.0))
+        .fill_max_width()
+        .justify_content(JustifyContent::SPACE_BETWEEN)
+        .align_items(AlignItems::CENTER))
+    .child((
         Box(Modifier::new().width(Dp(200.0))).child(LinearProgressIndicator(
             fraction,
             LinearProgressIndicatorConfig::default(),
@@ -1227,38 +1237,32 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             .color(theme().on_surface_variant),
         labelled(
             "width",
-            sized(
-                Dp(150.0),
-                Slider(
-                    view_now.px_per_sec,
-                    (roll::MIN_PX_PER_SEC, roll::MAX_PX_PER_SEC),
-                    None,
-                    {
-                        let viewport = viewport.clone();
-                        move |value| {
-                            viewport.update(|view| view.px_per_sec = value);
-                        }
-                    },
-                    SliderConfig::default(),
-                ),
+            Slider(
+                view_now.px_per_sec,
+                (roll::MIN_PX_PER_SEC, roll::MAX_PX_PER_SEC),
+                None,
+                {
+                    let viewport = viewport.clone();
+                    move |value| {
+                        viewport.update(|view| view.px_per_sec = value);
+                    }
+                },
+                fixed_slider_width(Dp(150.0)),
             ),
         ),
         labelled(
             "rows",
-            sized(
-                Dp(120.0),
-                Slider(
-                    view_now.px_per_pitch,
-                    (roll::MIN_PX_PER_PITCH, roll::MAX_PX_PER_PITCH),
-                    Some(1.0),
-                    {
-                        let viewport = viewport.clone();
-                        move |value| {
-                            viewport.update(|view| view.px_per_pitch = value);
-                        }
-                    },
-                    SliderConfig::default(),
-                ),
+            Slider(
+                view_now.px_per_pitch,
+                (roll::MIN_PX_PER_PITCH, roll::MAX_PX_PER_PITCH),
+                Some(1.0),
+                {
+                    let viewport = viewport.clone();
+                    move |value| {
+                        viewport.update(|view| view.px_per_pitch = value);
+                    }
+                },
+                fixed_slider_width(Dp(120.0)),
             ),
         ),
     ));
@@ -1270,13 +1274,17 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     ))
 }
 
-/// Give a material widget a width of its own.
+/// A material `Slider` at an explicit width.
 ///
-/// Not `View::modifier`: that replaces the widget's modifier, and a widget's
-/// painter, size and focus all live on it -- a slider re-modified this way draws
-/// nothing at all.
-pub(crate) fn sized(width: Dp, control: View) -> View {
-    Box(Modifier::new().width(width).align_self_center()).child(control)
+/// `Slider` opens with `min_width(200dp)` in its own host modifier, which beats
+/// any parent's constraint in the layout, so wrapping it in a sized `Box` does
+/// not shrink it -- it just overflows. The config's modifier is merged last, so
+/// it wins: reset the floor, then set the width.
+pub(crate) fn fixed_slider_width(width: Dp) -> repose_material::material3::SliderConfig {
+    repose_material::material3::SliderConfig {
+        modifier: Modifier::new().min_width(Dp(0.0)).width(width),
+        ..Default::default()
+    }
 }
 
 /// Hand a shared action to a widget that wants a plain closure.
@@ -1331,6 +1339,8 @@ fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn F
         return Row(Modifier::new()
             .padding(Dp(10.0))
             .gap(Dp(6.0))
+            .fill_max_width()
+            .justify_content(JustifyContent::SPACE_BETWEEN)
             .align_items(AlignItems::CENTER))
         .child((
             Icon(Symbols::TUNE)
@@ -1377,8 +1387,19 @@ fn quantise_panel(on: &Signal<bool>, params: &Signal<Quantize>, apply: &Rc<dyn F
     let snap_state = remember(MenuState::new);
     let division_state = remember(MenuState::new);
 
-    Column(Modifier::new().padding(Dp(10.0)).gap(Dp(8.0))).child(vec![
-        Row(Modifier::new().gap(Dp(6.0)).align_items(AlignItems::CENTER)).child((
+    Column(
+        Modifier::new()
+            .padding(Dp(10.0))
+            .gap(Dp(8.0))
+            .fill_max_width(),
+    )
+    .child(vec![
+        Row(Modifier::new()
+            .gap(Dp(6.0))
+            .fill_max_width()
+            .justify_content(JustifyContent::SPACE_BETWEEN)
+            .align_items(AlignItems::CENTER))
+        .child((
             Icon(Symbols::TUNE)
                 .size(Sp(16.0))
                 .color(theme().on_surface_variant),

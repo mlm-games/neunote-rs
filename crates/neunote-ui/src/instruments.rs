@@ -30,6 +30,7 @@ pub(crate) fn view(chosen: Signal<Vec<GroupId>>) -> View {
         Row(Modifier::new()
             .padding(Dp(6.0))
             .gap(Dp(8.0))
+            .fill_max_width()
             .align_items(AlignItems::CENTER))
         .child((
             Checkbox(
@@ -99,8 +100,14 @@ pub(crate) fn view(chosen: Signal<Vec<GroupId>>) -> View {
 
     let scroll = remember_scroll_state("neunote:instruments");
     ScrollArea(
-        Modifier::new().fill_max_height(),
+        Modifier::new().fill_max_height().fill_max_width(),
         scroll,
-        Column(Modifier::new().padding(Dp(4.0)).gap(Dp(2.0))).child(children),
+        Column(
+            Modifier::new()
+                .padding(Dp(4.0))
+                .gap(Dp(2.0))
+                .fill_max_width(),
+        )
+        .child(children),
     )
 }

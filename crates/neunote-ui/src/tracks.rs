@@ -7,11 +7,11 @@ use std::rc::Rc;
 use neunote_midi::group_by_program;
 use neunote_types::NoteEvent;
 use repose_core::prelude::*;
-use repose_material::material3::{Slider, SliderConfig, Switch, SwitchConfig};
+use repose_material::material3::{Slider, Switch, SwitchConfig};
 use repose_ui::scroll::{ScrollArea, remember_scroll_state};
 use repose_ui::*;
 
-use crate::view::{Symbols, TrackMix, icon_button, sized};
+use crate::view::{Symbols, TrackMix, fixed_slider_width, icon_button};
 
 /// Writes one track's mix and tells whoever is playing about it.
 type TrackWriter = Rc<dyn Fn(u16, &dyn Fn(&mut TrackMix))>;
@@ -55,8 +55,18 @@ pub(crate) fn view(
         let current = mix.get().get(&program).copied().unwrap_or_default();
 
         children.push(
-            Column(Modifier::new().padding(Dp(4.0)).gap(Dp(2.0))).child((
-                Row(Modifier::new().gap(Dp(8.0)).align_items(AlignItems::CENTER)).child((
+            Column(
+                Modifier::new()
+                    .padding(Dp(4.0))
+                    .gap(Dp(2.0))
+                    .fill_max_width(),
+            )
+            .child((
+                Row(Modifier::new()
+                    .gap(Dp(8.0))
+                    .align_items(AlignItems::CENTER)
+                    .fill_max_width())
+                .child((
                     Switch(
                         !shown.get().contains(&program),
                         {
@@ -79,7 +89,11 @@ pub(crate) fn view(
                         .size(Sp(12.0))
                         .color(theme().on_surface_variant),
                 )),
-                Row(Modifier::new().gap(Dp(2.0)).align_items(AlignItems::CENTER)).child((
+                Row(Modifier::new()
+                    .gap(Dp(2.0))
+                    .align_items(AlignItems::CENTER)
+                    .fill_max_width())
+                .child((
                     icon_button(Symbols::MUTE, "Mute", current.muted, {
                         {
                             let write = write.clone();
@@ -92,18 +106,15 @@ pub(crate) fn view(
                             move || write(program, &|track| track.solo = !track.solo)
                         }
                     }),
-                    sized(
-                        Dp(92.0),
-                        Slider(
-                            current.gain,
-                            (0.0, 1.5),
-                            Some(0.05),
-                            {
-                                let write = write.clone();
-                                move |value| write(program, &|track| track.gain = value)
-                            },
-                            SliderConfig::default(),
-                        ),
+                    Slider(
+                        current.gain,
+                        (0.0, 1.5),
+                        Some(0.05),
+                        {
+                            let write = write.clone();
+                            move |value| write(program, &|track| track.gain = value)
+                        },
+                        fixed_slider_width(Dp(92.0)),
                     ),
                 )),
             )),
@@ -112,8 +123,14 @@ pub(crate) fn view(
 
     let scroll = remember_scroll_state("neunote:tracks");
     ScrollArea(
-        Modifier::new().fill_max_height(),
+        Modifier::new().fill_max_height().fill_max_width(),
         scroll,
-        Column(Modifier::new().padding(Dp(4.0)).gap(Dp(6.0))).child(children),
+        Column(
+            Modifier::new()
+                .padding(Dp(4.0))
+                .gap(Dp(6.0))
+                .fill_max_width(),
+        )
+        .child(children),
     )
 }
