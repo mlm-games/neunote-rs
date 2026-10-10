@@ -36,13 +36,40 @@ struct Shared {
 
 pub struct Device {
     shared: Arc<Shared>,
-    _stream: cpal::Stream,
+    _stream: Stream,
 }
+
+/// The wasm host's stream holds a `web_sys::AudioContext`, which is neither
+/// Send nor Sync, and `Transport` requires both. It is only ever touched by
+/// the thread that opened it, so the wrapper is sound. The stream itself is
+/// held for its Drop: dropping it closes the device.
+#[allow(dead_code)]
+struct Stream(cpal::Stream);
+
+#[cfg(target_arch = "wasm32")]
+#[allow(unsafe_code)]
+unsafe impl Send for Stream {}
+
+#[cfg(target_arch = "wasm32")]
+#[allow(unsafe_code)]
+unsafe impl Sync for Stream {}
 
 impl Device {
     /// Open the default output device, if there is one.
     pub fn open() -> Option<Self> {
-        let device = cpal::default_host().default_output_device()?;
+        // The browser only offers the audioworklet host, and `default_host` is
+        // not guaranteed to pick it.
+        #[cfg(target_arch = "wasm32")]
+        let host = cpal::available_hosts()
+            .iter()
+            .find(|id| **id == cpal::HostId::AudioWorklet)
+            .and_then(|id| cpal::host_from_id(*id).ok())
+            .unwrap_or_else(cpal::default_host);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let host = cpal::default_host();
+
+        let device = host.default_output_device()?;
         let supported = device.default_output_config().ok()?;
         let channels = usize::from(supported.channels());
         let rate = f64::from(supported.sample_rate());
@@ -72,7 +99,7 @@ impl Device {
 
         Some(Self {
             shared,
-            _stream: stream,
+            _stream: Stream(stream),
         })
     }
 }

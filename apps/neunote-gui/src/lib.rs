@@ -9,7 +9,7 @@
 
 #[cfg(target_os = "android")]
 mod android;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_os = "android"))]
 mod audio;
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 mod native;

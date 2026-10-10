@@ -4,16 +4,18 @@
 use std::rc::Rc;
 
 use neunote_types::ModelSize;
-use neunote_ui::{LoadedAudio, LoadedWeights, Shell};
+use neunote_ui::{LoadedAudio, LoadedWeights, Shell, Transport};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Blob, File, FileList, HtmlElement, HtmlInputElement, Url};
 
 pub(crate) fn shell() -> Shell {
+    // cpal's audioworklet host is the browser's output device, so playback is
+    // the same cpal stream the desktop host opens.
+    let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
+
     Shell {
-        // A browser has no audio device to hand a view through this API, so
-        // there is nothing to play through and no transport control to show.
-        transport: None,
+        transport,
         // A browser tab has no model cache: the checkpoint lives in OPFS, and
         // `resolve_weights` reads it back from there.
         cached_weights: Rc::new(|_size: ModelSize| None),

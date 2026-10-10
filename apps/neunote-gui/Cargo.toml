@@ -83,6 +83,7 @@ scheme = "file"
 mime_type = "audio/*"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.18", features = ["wasm-bindgen", "audioworklet"] }
 hex = "0.4"
 js-sys = "0.3"
 sha2 = "0.10"
