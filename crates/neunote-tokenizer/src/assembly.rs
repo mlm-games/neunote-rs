@@ -195,27 +195,6 @@ impl NoteAssembler {
             .map(|tracked| tracked.note)
             .collect()
     }
-
-    /// The notes this window owns. `chunk_index` and `chunk_index + 1` are
-    /// trimmed together, then only `chunk_index` is reported -- a note that
-    /// closed in the next chunk can still truncate one from this one.
-    pub fn closed_in(&self, chunk_index: u32) -> Vec<NoteEvent> {
-        let mut window: Vec<TrackedNote> = self
-            .closed
-            .iter()
-            .filter(|tracked| {
-                tracked.chunk_index == chunk_index || tracked.chunk_index == chunk_index + 1
-            })
-            .cloned()
-            .collect();
-
-        validate_tracked(&mut window);
-        trim_tracked(&window)
-            .into_iter()
-            .filter(|tracked| tracked.chunk_index == chunk_index)
-            .map(|tracked| tracked.note)
-            .collect()
-    }
 }
 
 #[allow(dead_code)]

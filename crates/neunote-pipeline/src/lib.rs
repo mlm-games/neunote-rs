@@ -233,9 +233,13 @@ pub fn transcribe_streaming(
             finalized_through: seek_time,
         }));
 
-        let finalized = assembler.closed_in(chunk_index as u32);
-        if !finalized.is_empty() {
-            on_event(Event::Notes(finalized));
+        // The run so far, not this chunk's piece of it: the view replaces what
+        // it holds, so a delta would leave only the last chunk's notes and a
+        // cancelled run would keep almost nothing. The final answer replaces
+        // this list, so a note a later chunk still trims is fine here.
+        let preview = assembler.finalize();
+        if !preview.is_empty() {
+            on_event(Event::Notes(preview));
         }
     }
 
@@ -655,17 +659,23 @@ mod tests {
         )
         .unwrap();
 
-        // One note closed in chunk 0, one in chunk 1, and the list keeps the
-        // same order the final answer has.
+        // One note closed in chunk 0, one in chunk 1, and every report is the
+        // run so far rather than that chunk's piece of it.
         assert_eq!(seen.len(), 2, "one report per chunk with notes in it");
+        assert_eq!(seen[0].len(), 1, "the first chunk's note");
         assert_eq!(seen[0][0].pitch, 60);
-        assert_eq!(seen[1][0].pitch, 64);
+        assert_eq!(
+            seen[1].len(),
+            2,
+            "the run so far keeps the first chunk's note"
+        );
+        assert_eq!(seen[1][0].pitch, 60);
+        assert_eq!(seen[1][1].pitch, 64);
 
         let Outcome::Finished(notes) = outcome else {
-            panic!("a run that finished is not cancelled");
+            panic!("a run that finished is not cancelled")
         };
-        let streamed: Vec<NoteEvent> = seen.into_iter().flatten().collect();
-        assert_eq!(streamed, notes, "the preview matches the finished list");
+        assert_eq!(seen[1], notes, "the last preview is the finished list");
     }
 
     #[test]

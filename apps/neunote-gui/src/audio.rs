@@ -255,17 +255,18 @@ fn source_sample(job: &Job, at: f64) -> f32 {
 }
 
 fn note_sample(job: &mut Job, at: f64, solo: bool) -> f32 {
-    while job
-        .pending
-        .first()
-        .is_some_and(|note| note.onset <= at && at < note.offset)
-    {
+    // Every note whose onset has passed leaves the queue, including one whose
+    // window closed between two frames: a shorter-than-a-frame note would
+    // otherwise park itself at the head and starve everything after it.
+    while job.pending.first().is_some_and(|note| note.onset <= at) {
         let note = job.pending.remove(0);
-        job.voices.push(Voice {
-            offset: note.offset,
-            frequency: midi_frequency(note.pitch),
-            program: note.program,
-        });
+        if at < note.offset {
+            job.voices.push(Voice {
+                offset: note.offset,
+                frequency: midi_frequency(note.pitch),
+                program: note.program,
+            });
+        }
     }
 
     job.voices.retain(|voice| voice.offset > at);
