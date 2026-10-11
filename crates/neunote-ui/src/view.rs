@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use neunote_audio::{compute_peaks, decode_bytes, to_engine_input};
 use neunote_midi::midi_bytes;
-use neunote_types::{ModelSize, NoteEvent};
+use neunote_types::{ModelSize, NoteEvent, TRANSCRIPTION_SAMPLE_RATE};
 use repose_core::prelude::*;
 use repose_core::shortcuts::ShortcutMap;
 use repose_core::{RenderContext, shortcuts, timer};
@@ -324,9 +324,25 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 match decode_bytes(&loaded.bytes, &loaded.name) {
                     Ok(buffer) => {
                         let seconds = buffer.duration_secs();
+                        let from_rate = buffer.sample_rate;
                         match to_engine_input(&buffer) {
                             Ok(mono) => {
-                                status.set(format!("{} · {:.1}s", loaded.name, seconds));
+                                let first = mono.iter().position(|s| *s != 0.0);
+                                let sound_at = first.map_or_else(
+                                    || String::from("never"),
+                                    |i| {
+                                        format!(
+                                            "{:.2}s",
+                                            i as f64 / f64::from(TRANSCRIPTION_SAMPLE_RATE)
+                                        )
+                                    },
+                                );
+                                status.set(format!(
+                                    "{} · {:.1}s · {from_rate}Hz → {} samples · sound at {sound_at}",
+                                    loaded.name,
+                                    seconds,
+                                    mono.len()
+                                ));
                                 let peaks = Arc::new(compute_peaks(&mono, 1600));
                                 source.set(Some(Rc::new(Source {
                                     name: loaded.name,
