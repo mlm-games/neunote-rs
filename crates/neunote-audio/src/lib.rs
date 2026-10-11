@@ -270,7 +270,9 @@ pub fn to_engine_input(audio: &AudioBuffer) -> Result<Vec<f32>, AudioError> {
 }
 
 fn expected_length(input_len: usize, from_rate: u32) -> usize {
-    input_len * TRANSCRIPTION_SAMPLE_RATE as usize / from_rate as usize
+    // usize is 32 bits on wasm, where a few minutes of 44.1 kHz audio times
+    // 16000 wraps and truncates the buffer to a couple of seconds of silence.
+    (input_len as u64 * u64::from(TRANSCRIPTION_SAMPLE_RATE) / u64::from(from_rate)) as usize
 }
 
 /// Min/max per bucket, for the waveform view.
@@ -331,6 +333,19 @@ mod tests {
                 (2.0 * std::f64::consts::PI * freq * t).sin() as f32
             })
             .collect()
+    }
+
+    #[test]
+    fn a_length_whose_rate_product_wraps_32_bits_still_counts_right() {
+        // Five minutes of 44.1 kHz times 16000 is past u32::MAX, and the web
+        // build's usize is 32 bits wide. Wrapping it truncated a real file to
+        // 82_802 samples, so the song played for five seconds.
+        let input_len = 44_100 * 300;
+        assert!(input_len as u64 * 16_000 > u64::from(u32::MAX));
+        assert_eq!(
+            expected_length(input_len, 44_100),
+            input_len * 16_000 / 44_100
+        );
     }
 
     #[test]
