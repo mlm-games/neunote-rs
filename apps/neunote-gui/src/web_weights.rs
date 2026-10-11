@@ -121,29 +121,34 @@ pub(crate) fn fetch(size: ModelSize, accepted: bool, progress: Progress, done: R
 
         progress(0, total);
 
-        then(
-            response.array_buffer().expect("a Response can be buffered"),
-            move |value| {
-                let Ok(buffer) = value.dyn_into::<js_sys::ArrayBuffer>() else {
-                    done(Err(String::from("the response carried no bytes")));
-                    return;
-                };
+        let buffered = match response.array_buffer() {
+            Ok(buffered) => buffered,
+            Err(error) => {
+                done(Err(format!("the response would not buffer: {error:?}")));
+                return;
+            }
+        };
 
-                let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-                progress(bytes.len() as u64, total);
+        then(buffered, move |value| {
+            let Ok(buffer) = value.dyn_into::<js_sys::ArrayBuffer>() else {
+                done(Err(String::from("the response carried no bytes")));
+                return;
+            };
 
-                let digest = hex::encode(Sha256::digest(&bytes));
-                if digest != entry.sha256 {
-                    done(Err(format!(
-                        "{} hashed to {digest}, not the pinned digest. Nothing was kept.",
-                        entry.file_name
-                    )));
-                    return;
-                }
+            let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+            progress(bytes.len() as u64, total);
 
-                store(entry, bytes, done);
-            },
-        );
+            let digest = hex::encode(Sha256::digest(&bytes));
+            if digest != entry.sha256 {
+                done(Err(format!(
+                    "{} hashed to {digest}, not the pinned digest. Nothing was kept.",
+                    entry.file_name
+                )));
+                return;
+            }
+
+            store(entry, bytes, done);
+        });
     });
 }
 
@@ -172,14 +177,18 @@ fn store(entry: &'static ModelEntry, bytes: Vec<u8>, done: Resolved) {
                         };
 
                         let array = js_sys::Uint8Array::from(bytes.as_slice());
-                        then(
-                            stream
-                                .write_with_buffer_source(array.as_ref())
-                                .expect("a writable stream accepts bytes"),
-                            move |_| {
-                                then(stream.close(), move |_| read_back(entry, done));
-                            },
-                        );
+                        let written = match stream.write_with_buffer_source(array.as_ref()) {
+                            Ok(written) => written,
+                            Err(error) => {
+                                done(Err(format!("the browser refused the write: {error:?}")));
+                                return;
+                            }
+                        };
+
+                        then(written, move |_| {
+                            let closed = stream.close();
+                            then(closed, move |_| read_back(entry, done));
+                        });
                     });
                 },
             )
@@ -277,12 +286,18 @@ fn then(promise: js_sys::Promise, map: impl FnOnce(JsValue) + 'static) {
     let on_reject = Rc::clone(&map);
 
     let fulfilled = Closure::once(move |value: JsValue| {
-        if let Some(map) = map.borrow_mut().take() {
+        // The borrow has to end before the callback runs. `map` re-enters this
+        // module, and `catch` below fires inside this very call stack if the
+        // callback throws, so a guard held across it is an immediate double
+        // borrow.
+        let next = map.borrow_mut().take();
+        if let Some(map) = next {
             map(value);
         }
     });
     let rejected = Closure::once(move |_error: JsValue| {
-        if let Some(map) = on_reject.borrow_mut().take() {
+        let next = on_reject.borrow_mut().take();
+        if let Some(map) = next {
             map(JsValue::UNDEFINED);
         }
     });
