@@ -23,6 +23,8 @@ pub(crate) fn shell() -> Shell {
     let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
 
     Shell {
+        initial_audio: audio_from_args(),
+
         cached_weights: Rc::new(move |size| cached.get(&size).cloned()),
         weights_available: Rc::new(move |size| available.contains(&size)),
         transport,
@@ -89,6 +91,21 @@ pub(crate) fn shell() -> Shell {
             done(written);
         }),
     }
+}
+
+/// The first argument that names a file, if any.
+///
+/// The launcher entry and "open with" both hand a path over this way, so a
+/// flag that is not a path -- and the bare program name -- are skipped rather
+/// than reported as a missing file.
+fn audio_from_args() -> Option<PathBuf> {
+    first_audio_file(std::env::args_os().skip(1))
+}
+
+fn first_audio_file(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<PathBuf> {
+    args.into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_file())
 }
 
 fn read_audio(path: Option<PathBuf>) -> Option<LoadedAudio> {

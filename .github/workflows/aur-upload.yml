@@ -23,8 +23,8 @@ jobs:
       provides: "neunote"
       conflicts: "neunote"
       desktop-categories: "AudioVideo;Audio;AudioVideoEditing;"
-      # No desktop-args or desktop-mime-type: the GUI does not read argv, so
-      # claiming to open an audio file would promise a hand-off it never takes.
+      desktop-args: "%F"
+      desktop-mime-type: "audio/mpeg;audio/flac;audio/wav;audio/ogg;audio/x-wav;audio/aac;audio/mp4;audio/x-flac;"
       version: ${{ inputs.version_name }}
       maintainer-name: "MLM Games"
       maintainer-email: "dev@mlm.games"

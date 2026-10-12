@@ -28,6 +28,7 @@ pub(crate) fn shell() -> Shell {
         transport,
         // A browser tab has no model cache: the checkpoint lives in OPFS, and
         // `resolve_weights` reads it back from there.
+        initial_audio: None,
         cached_weights: Rc::new(|_size: ModelSize| None),
 
         weights_available: Rc::new(move |size| available.borrow().contains(&size)),

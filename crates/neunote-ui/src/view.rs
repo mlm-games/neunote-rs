@@ -90,6 +90,10 @@ type Bytes = WeightsDone;
 /// and a browser store.
 pub struct Shell {
     pub pick_audio: Rc<dyn Fn(Picked)>,
+    /// A file to open at startup, from the command line. The launcher entry
+    /// and "open with" hand a path over this way; a host with no arguments
+    /// passes `None`.
+    pub initial_audio: Option<PathBuf>,
     pub pick_weights: Rc<dyn Fn(PickedWeights)>,
     /// A verified checkpoint already on this machine, if there is one.
     pub cached_weights: Rc<dyn Fn(ModelSize) -> Option<PathBuf>>,
@@ -323,64 +327,85 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     // A handle of its own, so the picker's callback can own one without
     // taking the signal away from the transport below.
     let head_reset = head.clone();
-    let on_open = {
+    let take_audio: Rc<dyn Fn(Option<LoadedAudio>)> = Rc::new({
         let phase = (*phase).clone();
         let status = (*status).clone();
         let source = (*source).clone();
         let editor = editor.clone();
         let viewport = (*viewport).clone();
-        let picker = shell.pick_audio.clone();
+        let head = head_reset.clone();
 
-        Rc::new(move || {
-            // The picker may answer later, so the callback takes its own
-            // handles and this closure stays callable more than once.
-            let phase = phase.clone();
-            let status = status.clone();
-            let source = source.clone();
-            let editor = editor.clone();
-            let viewport = viewport.clone();
-            let head = head_reset.clone();
+        move |loaded: Option<LoadedAudio>| {
+            let Some(loaded) = loaded else {
+                return;
+            };
 
-            picker(Rc::new(move |loaded| {
-                let Some(loaded) = loaded else {
-                    return;
-                };
+            phase.set(Phase::Working { done: 0, total: 0 });
+            status.set(format!("decoding {}…", loaded.name));
 
-                phase.set(Phase::Working { done: 0, total: 0 });
-                status.set(format!("decoding {}…", loaded.name));
-
-                match decode_bytes(&loaded.bytes, &loaded.name) {
-                    Ok(buffer) => {
-                        let seconds = buffer.duration_secs();
-                        match to_engine_input(&buffer) {
-                            Ok(mono) => {
-                                status.set(format!("{} · {:.1}s", loaded.name, seconds));
-                                let peaks = Arc::new(compute_peaks(&mono, 1600));
-                                source.set(Some(Rc::new(Source {
-                                    name: loaded.name,
-                                    samples: Arc::new(mono),
-                                    duration: seconds,
-                                    peaks,
-                                })));
-                                head.set(0.0);
-                                editor.reset(Vec::new());
-                                viewport.set(Viewport::default());
-                                phase.set(Phase::Idle);
-                            }
-                            Err(error) => {
-                                phase.set(Phase::Failed);
-                                status.set(format!("cannot resample {}: {error}", loaded.name));
-                            }
+            match decode_bytes(&loaded.bytes, &loaded.name) {
+                Ok(buffer) => {
+                    let seconds = buffer.duration_secs();
+                    match to_engine_input(&buffer) {
+                        Ok(mono) => {
+                            status.set(format!("{} · {:.1}s", loaded.name, seconds));
+                            let peaks = Arc::new(compute_peaks(&mono, 1600));
+                            source.set(Some(Rc::new(Source {
+                                name: loaded.name,
+                                samples: Arc::new(mono),
+                                duration: seconds,
+                                peaks,
+                            })));
+                            head.set(0.0);
+                            editor.reset(Vec::new());
+                            viewport.set(Viewport::default());
+                            phase.set(Phase::Idle);
+                        }
+                        Err(error) => {
+                            phase.set(Phase::Failed);
+                            status.set(format!("cannot resample {}: {error}", loaded.name));
                         }
                     }
-                    Err(error) => {
-                        phase.set(Phase::Failed);
-                        status.set(format!("cannot decode {}: {error}", loaded.name));
-                    }
                 }
-            }));
-        })
+                Err(error) => {
+                    phase.set(Phase::Failed);
+                    status.set(format!("cannot decode {}: {error}", loaded.name));
+                }
+            }
+        }
+    });
+
+    let on_open = {
+        let picker = shell.pick_audio.clone();
+        let take_audio = Rc::clone(&take_audio);
+
+        Rc::new(move || picker(Rc::clone(&take_audio)))
     };
+
+    // A file named on the command line -- the launcher entry's hand-off, and
+    // what makes "open with" from a file manager do something. This runs on
+    // mount, not in the tree: `body` is rebuilt every frame, and re-reading
+    // and re-decoding a file 60 times a second would be its own kind of hang.
+    if let Some(path) = shell.initial_audio.clone() {
+        let take_audio = Rc::clone(&take_audio);
+        let status = (*status).clone();
+
+        scoped_effect_once(move || {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+
+            match std::fs::read(&path) {
+                Ok(bytes) => take_audio(Some(LoadedAudio { name, bytes })),
+                // A path that has gone away is reported on the status line; the
+                // window still opens so the file can be picked another way.
+                Err(error) => status.set(format!("cannot open {}: {error}", path.display())),
+            }
+
+            Dispose::new(|| {})
+        });
+    }
 
     let on_choose_weights = {
         let status = (*status).clone();
