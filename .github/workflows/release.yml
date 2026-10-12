@@ -43,6 +43,10 @@ jobs:
       app-name: 'Neunote'
       app-slug: 'neunote'
       bin-name: 'neunote-gui'
+      # The CLI's own binary is called `neunote`, which is the GUI's installed
+      # name, so it ships under a different name inside the archive.
+      cargo-build-args: "-p neunote-gui -p neunote-cli"
+      extra-binaries: "neunote=neunote-cli"
       os-matrix: '["ubuntu-26.04","ubuntu-26.04-arm","macos-latest","windows-latest"]'
       system-deps-linux: "libasound2-dev libudev-dev pkg-config libx11-dev libxcb1-dev libxi-dev libxinerama-dev libxrandr-dev libxcursor-dev libfontconfig-dev libwayland-dev libxkbcommon-dev"
       include-android: true
@@ -52,4 +56,5 @@ jobs:
       changelog-path: ""
       prerelease: ${{ inputs.mark_prerelease }}
       bump-type: ${{ inputs.bump_type }}
+      dispatch-on-release: '["aur-upload.yml"]'
     secrets: inherit

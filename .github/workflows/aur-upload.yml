@@ -1,0 +1,32 @@
+name: AUR upload (neunote-bin)
+
+# Thin dispatcher: rust-app-release dispatches here with version_name,
+# we delegate to the shared reusable (desktop entry included).
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Release version (e.g. 0.2.1)"
+        required: true
+
+jobs:
+  aur-upload:
+    uses: mlm-games/ci/.github/workflows/aur-upload.yml@v1
+    with:
+      pkgname: neunote-bin
+      pkgdesc: "Transcribe audio to notes and MIDI, built on the Repose GUI framework"
+      binary-name: neunote-${{ inputs.version_name }}-x86_64-unknown-linux-gnu.tar.gz
+      binary-name-aarch64: neunote-${{ inputs.version_name }}-aarch64-unknown-linux-gnu.tar.gz
+      extra-binaries: "neunote-cli"
+      app-name: "Neunote"
+      license: "MPL-2.0"
+      provides: "neunote"
+      conflicts: "neunote"
+      desktop-categories: "AudioVideo;Audio;AudioVideoEditing;"
+      # No desktop-args or desktop-mime-type: the GUI does not read argv, so
+      # claiming to open an audio file would promise a hand-off it never takes.
+      version: ${{ inputs.version_name }}
+      maintainer-name: "MLM Games"
+      maintainer-email: "dev@mlm.games"
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
