@@ -26,6 +26,7 @@ use std::path::Path;
 
 use gguf::{Gguf, Weight};
 use model::{Hparams, Weights};
+use std::sync::Arc;
 
 pub use model::{Chunk, Model, Stop};
 
@@ -77,7 +78,11 @@ impl Model {
     /// Load a checkpoint a host already holds in memory -- one it fetched or
     /// picked rather than opened by path. Past the bytes this is the same read
     /// as [`Model::load`].
-    pub fn from_bytes(bytes: Vec<u8>, label: &str) -> Result<Self, Error> {
+    ///
+    /// The buffer is shared rather than taken: a browser tab that picked a
+    /// 200 MB checkpoint still holds it afterwards, and copying it again here
+    /// is the difference between fitting in a tab's heap and not.
+    pub fn from_bytes(bytes: Arc<Vec<u8>>, label: &str) -> Result<Self, Error> {
         let file =
             Gguf::parse(bytes).map_err(|error| Error::Checkpoint(format!("{label}: {error}")))?;
         Self::from_gguf(file, label)

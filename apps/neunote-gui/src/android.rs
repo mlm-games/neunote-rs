@@ -51,10 +51,13 @@ pub(crate) fn shell(pending: &Pending) -> Shell {
         found
     };
 
+    let available: Vec<ModelSize> = cached.keys().copied().collect();
+
     let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
 
     Shell {
         cached_weights: Rc::new(move |size| cached.get(&size).cloned()),
+        weights_available: Rc::new(move |size| available.contains(&size)),
 
         resolve_weights: Rc::new(|_size, done| {
             done(Err(String::from(

@@ -18,10 +18,13 @@ pub(crate) fn shell() -> Shell {
         .map(|size| (size, cache.model_path(size)))
         .collect();
 
+    let available: Vec<ModelSize> = cached.keys().copied().collect();
+
     let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
 
     Shell {
         cached_weights: Rc::new(move |size| cached.get(&size).cloned()),
+        weights_available: Rc::new(move |size| available.contains(&size)),
         transport,
 
         // The desktop reads weights from the cache above, or from a file the

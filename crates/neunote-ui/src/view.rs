@@ -81,7 +81,9 @@ type Saved = Rc<dyn Fn(Result<String, String>)>;
 type Saver = Rc<dyn Fn(&str, &[u8], Saved)>;
 type Copier = Rc<dyn Fn(&str, &[u8]) -> Result<String, String>>;
 type Progress = Rc<dyn Fn(u64, u64)>;
-type Bytes = Rc<dyn Fn(Result<Rc<Vec<u8>>, String>)>;
+/// What a host answers with when it has (or has failed to produce) weights.
+pub type WeightsDone = Rc<dyn Fn(Result<Rc<Vec<u8>>, String>)>;
+type Bytes = WeightsDone;
 
 /// What the view needs from its platform. The desktop shell answers with
 /// dialogs and the model cache; the web shell with a file input, a download,
@@ -91,6 +93,11 @@ pub struct Shell {
     pub pick_weights: Rc<dyn Fn(PickedWeights)>,
     /// A verified checkpoint already on this machine, if there is one.
     pub cached_weights: Rc<dyn Fn(ModelSize) -> Option<PathBuf>>,
+    /// Whether this host can hand over that size right now, without asking for
+    /// it first. A browser has no path to offer, so it answers from its own
+    /// store -- which is the difference between naming a checkpoint the tab
+    /// holds and naming one it has never been given.
+    pub weights_available: Rc<dyn Fn(ModelSize) -> bool>,
     /// Checkpoint bytes this host already holds. Asynchronous because a browser
     /// reads them back out of its own store; an error says what to do about it.
     pub resolve_weights: Rc<dyn Fn(ModelSize, Bytes)>,
@@ -196,6 +203,26 @@ fn app(shell: &Shell, _scheduler: &mut Scheduler) -> View {
     with_theme(theme, || body(shell, (*dark).clone()))
 }
 
+/// The checkpoint's name without the model family or the extension.
+fn short_name_of(size: ModelSize) -> String {
+    size.display_name().to_owned()
+}
+
+fn short_name(path: Option<PathBuf>) -> Option<String> {
+    let path = path?;
+    Some(
+        path.file_name()
+            .map(|name| name.to_string_lossy())
+            .map(|name| {
+                name.strip_prefix("muscriptor-")
+                    .unwrap_or(&name)
+                    .trim_end_matches(".gguf")
+                    .to_owned()
+            })
+            .unwrap_or_else(|| path.display().to_string()),
+    )
+}
+
 fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let phase = remember(|| signal(Phase::Idle));
     let status = remember(|| signal(String::from("Open an audio file to begin.")));
@@ -203,7 +230,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
     let raw = remember(|| signal(Rc::new(Vec::new())));
     let selection = remember(|| signal(Rc::new(BTreeSet::new())));
     let editor = Editor::new((*raw).clone(), (*selection).clone());
-    let picked_weights = remember(|| signal(None::<Rc<Vec<u8>>>));
+    let picked_weights = remember(|| signal(None::<Arc<Vec<u8>>>));
     let size = remember(|| signal(ModelSize::Small));
     let prelude = remember(|| signal(true));
     let instruments = remember(|| signal(Vec::new()));
@@ -247,6 +274,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                 let mut finished = None;
                 for message in messages {
                     match message {
+                        Message::Total(total) => phase.set(Phase::Working { done: 0, total }),
                         Message::Progress {
                             done,
                             total,
@@ -368,7 +396,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
                     return;
                 };
                 status.set(format!("checkpoint: {}", loaded.name));
-                picked_weights.set(Some(Rc::new(loaded.bytes)));
+                picked_weights.set(Some(Arc::new(loaded.bytes)));
             }));
         }
     };
@@ -429,7 +457,7 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
             match cached(size.get()) {
                 Some(path) => ready(Weights::Path(path)),
                 None => match picked_weights.get() {
-                    Some(bytes) => ready(Weights::Bytes(Arc::new(bytes.as_ref().clone()))),
+                    Some(bytes) => ready(Weights::Bytes(Arc::clone(&bytes))),
                     None => {
                         phase.set(Phase::Working { done: 0, total: 0 });
                         status.set("looking for a checkpoint…".to_owned());
@@ -913,20 +941,13 @@ fn body(shell: &Shell, dark: Signal<bool>) -> View {
 
     // The file's name, not its path: the button says what is loaded, and a
     // 75-character home directory does not fit a toolbar.
-    let weights_label = match (shell.cached_weights)(size.get()) {
-        Some(path) => path
-            .file_name()
-            .map(|name| name.to_string_lossy())
-            .map(|name| {
-                name.strip_prefix("muscriptor-")
-                    .unwrap_or(&name)
-                    .trim_end_matches(".gguf")
-                    .to_owned()
-            })
-            .unwrap_or_else(|| path.display().to_string()),
-        None if picked_weights.get().is_some() => String::from("a picked file"),
-        None => String::from("no checkpoint"),
-    };
+    let weights_label = short_name((shell.cached_weights)(size.get())).unwrap_or_else(|| {
+        match picked_weights.get() {
+            Some(_) => String::from("the picked checkpoint"),
+            None if (shell.weights_available)(size.get()) => short_name_of(size.get()),
+            None => format!("{} (not here yet)", short_name_of(size.get())),
+        }
+    });
 
     let overflow = remember(MenuState::new);
     // The three checkpoints as one control: Small, Medium, Large.

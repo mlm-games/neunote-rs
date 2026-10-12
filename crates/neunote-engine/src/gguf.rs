@@ -13,6 +13,7 @@ use std::path::Path;
 use half::f16;
 
 use crate::Error;
+use std::sync::Arc;
 
 const MAGIC: &[u8; 4] = b"GGUF";
 const SUPPORTED_VERSION: u32 = 3;
@@ -151,10 +152,12 @@ impl Weight {
     }
 }
 
-/// A parsed checkpoint. The bytes stay owned so every weight is a view into
-/// one allocation and nothing is copied twice.
+/// A parsed checkpoint. The bytes stay alive so every weight is a view into
+/// one allocation, and shared rather than owned so a host that already holds
+/// the file -- a browser picking a 200 MB checkpoint -- is not made to hold a
+/// second copy of it.
 pub struct Gguf {
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
     meta: BTreeMap<String, Value>,
     tensors: BTreeMap<String, Tensor>,
     data_start: usize,
@@ -165,11 +168,11 @@ impl Gguf {
         let bytes = std::fs::read(path).map_err(|source| {
             Error::Checkpoint(format!("cannot read {}: {source}", path.display()))
         })?;
-        Self::parse(bytes)
+        Self::parse(Arc::new(bytes))
             .map_err(|error| Error::Checkpoint(format!("{}: {error}", path.display())))
     }
 
-    pub(crate) fn parse(bytes: Vec<u8>) -> Result<Self, Error> {
+    pub(crate) fn parse(bytes: Arc<Vec<u8>>) -> Result<Self, Error> {
         let mut cursor = Cursor::new(&bytes);
 
         if cursor.take(4)? != MAGIC {

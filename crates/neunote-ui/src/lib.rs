@@ -18,4 +18,6 @@ mod tracks;
 mod view;
 mod waveform;
 
-pub use view::{LoadedAudio, LoadedWeights, Mix, Mode, Shell, TrackMix, Transport, root};
+pub use view::{
+    LoadedAudio, LoadedWeights, Mix, Mode, Shell, TrackMix, Transport, WeightsDone, root,
+};

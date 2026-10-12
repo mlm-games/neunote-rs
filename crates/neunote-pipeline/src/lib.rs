@@ -141,6 +141,173 @@ pub fn transcribe_with(
     )
 }
 
+/// One chunk's progress and whatever it finalized.
+pub struct Step {
+    pub progress: Progress,
+    /// The run so far, or `None` when this chunk closed nothing new.
+    pub notes: Option<Vec<NoteEvent>>,
+}
+
+/// A run that can be advanced a chunk at a time.
+///
+/// `transcribe_streaming` drives one of these to the end. A host with no spare
+/// thread needs the other half of the seam: one `step()` per event-loop turn,
+/// so a long transcription keeps painting, keeps reporting, and can still be
+/// cancelled instead of freezing the page for hours.
+pub struct Run {
+    segment: usize,
+    total: usize,
+    prelude_forcing: bool,
+    instrument_rows: Vec<i32>,
+    forbidden: Vec<i32>,
+    tracker: OpenNoteTracker,
+    assembler: NoteAssembler,
+    next: usize,
+}
+
+impl Run {
+    pub fn new(
+        segment: usize,
+        sample_count: usize,
+        model_size: ModelSize,
+        instruments: &[GroupId],
+        prelude_forcing: bool,
+    ) -> Result<Self, String> {
+        if segment == 0 {
+            return Err("engine reports a zero-length segment".to_owned());
+        }
+
+        Ok(Self {
+            forbidden: forbidden_for(model_size, instruments)?,
+            instrument_rows: neunote_tokenizer::conditioning_rows(instruments),
+            total: sample_count.div_ceil(segment).max(1),
+            segment,
+            prelude_forcing,
+            tracker: OpenNoteTracker::new(),
+            assembler: NoteAssembler::new(),
+            next: 0,
+        })
+    }
+
+    /// A run over `samples`, sized by what `engine` says a segment is.
+    pub fn for_engine(
+        engine: &dyn Engine,
+        samples: &[f32],
+        model_size: ModelSize,
+        instruments: &[GroupId],
+        prelude_forcing: bool,
+    ) -> Result<Self, String> {
+        Self::new(
+            engine.segment_samples(),
+            samples.len(),
+            model_size,
+            instruments,
+            prelude_forcing,
+        )
+    }
+
+    /// How many chunks this run has.
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    /// Whether every chunk has been through.
+    pub fn is_done(&self) -> bool {
+        self.next >= self.total
+    }
+
+    /// Transcribe the next chunk. `None` once there is nothing left to do.
+    pub fn step(
+        &mut self,
+        engine: &mut dyn Engine,
+        samples: &[f32],
+    ) -> Result<Option<Step>, String> {
+        let chunk_index = self.next;
+        if chunk_index >= self.total {
+            return Ok(None);
+        }
+        self.next += 1;
+
+        let start = chunk_index * self.segment;
+        let chunk = samples
+            .get(start..)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .take(self.segment)
+            .collect::<Vec<f32>>();
+        // The last chunk is zero-padded and the padding is not masked.
+        let padded = padded_to(&chunk, self.segment);
+
+        let seek_time = chunk_index as f64 * SEGMENT_DURATION_SECS;
+        let next_seek_time =
+            (chunk_index + 1 < self.total).then_some(seek_time + SEGMENT_DURATION_SECS);
+
+        // Prelude forcing: at every boundary after the first, the notes still
+        // sounding are encoded and teacher-forced rather than predicted. With it
+        // off the model writes its own prologue, which the reference's token
+        // dumps are recorded under.
+        let prompt = if chunk_index == 0 || !self.prelude_forcing {
+            Vec::new()
+        } else {
+            tie_section_tokens(&self.tracker.open_keys())
+        };
+
+        // The boundary is fed before generation so the tracker knows the window
+        // the tokens will be checked against.
+        let mut actions = self.tracker.feed_boundary(ChunkBoundary {
+            seek_time,
+            next_seek_time,
+        });
+
+        let chunk = engine.generate(ChunkRequest {
+            samples: &padded,
+            prompt: &prompt,
+            instrument_rows: &self.instrument_rows,
+            forbidden: &self.forbidden,
+        })?;
+        validate_tokens(&chunk.tokens)?;
+
+        // The engine returns the forced prompt inside the stream it generated,
+        // exactly as the reference's own `generate` does. Replaying it here as
+        // well would feed every boundary twice and desynchronise the tracker.
+        for token in &chunk.tokens {
+            if *token == neunote_tokenizer::EOS_ID {
+                break;
+            }
+            actions.extend(self.tracker.feed_token(*token));
+        }
+
+        self.assembler
+            .apply(&actions, chunk_index as u32)
+            .map_err(|error| format!("chunk {chunk_index}: {error}"))?;
+
+        // The run so far, not this chunk's piece of it: a view replaces what it
+        // holds, so a delta would leave only the last chunk's notes and a
+        // cancelled run would keep almost nothing. The final answer replaces
+        // this list, so a note a later chunk still trims is fine here.
+        let notes = self.assembler.finalize();
+
+        Ok(Some(Step {
+            progress: Progress {
+                chunks_done: chunk_index + 1,
+                chunks_total: self.total,
+                finalized_through: seek_time,
+            },
+            notes: (!notes.is_empty()).then_some(notes),
+        }))
+    }
+
+    /// Close whatever the tracker still holds open and hand over the notes.
+    pub fn finish(mut self) -> Result<Vec<NoteEvent>, String> {
+        let emitted = self.tracker.finish();
+        self.assembler
+            .apply(&emitted, (self.total - 1) as u32)
+            .map_err(|error| format!("final chunk: {error}"))?;
+        Ok(self.assembler.finalize())
+    }
+}
+
 /// The same run, reporting what it has as it goes.
 ///
 /// `Event::Notes` is a preview, not the answer: a note reported at the end of
@@ -157,89 +324,20 @@ pub fn transcribe_streaming(
     cancel: &AtomicBool,
     mut on_event: impl FnMut(Event),
 ) -> Result<Outcome, String> {
-    let segment = engine.segment_samples();
-    if segment == 0 {
-        return Err("engine reports a zero-length segment".to_owned());
-    }
+    let mut run = Run::for_engine(engine, samples, model_size, instruments, prelude_forcing)?;
 
-    let forbidden = forbidden_for(model_size, instruments)?;
-    let instrument_rows = neunote_tokenizer::conditioning_rows(instruments);
-
-    let mut tracker = OpenNoteTracker::new();
-    let mut assembler = NoteAssembler::new();
-    let total = samples.len().div_ceil(segment).max(1);
-
-    for chunk_index in 0..total {
+    loop {
         if cancel.load(Ordering::SeqCst) {
             return Ok(Outcome::Cancelled);
         }
 
-        let start = chunk_index * segment;
-        let chunk = samples
-            .get(start..)
-            .unwrap_or(&[])
-            .iter()
-            .copied()
-            .take(segment)
-            .collect::<Vec<f32>>();
-        // The last chunk is zero-padded and the padding is not masked.
-        let padded = padded_to(&chunk, segment);
-
-        let seek_time = chunk_index as f64 * SEGMENT_DURATION_SECS;
-        let next_seek_time = (chunk_index + 1 < total).then_some(seek_time + SEGMENT_DURATION_SECS);
-
-        // Prelude forcing: at every boundary after the first, the notes still
-        // sounding are encoded and teacher-forced rather than predicted. With it
-        // off the model writes its own prologue, which the reference's token
-        // dumps are recorded under.
-        let prompt = if chunk_index == 0 || !prelude_forcing {
-            Vec::new()
-        } else {
-            tie_section_tokens(&tracker.open_keys())
+        let Some(step) = run.step(engine, samples)? else {
+            break;
         };
 
-        // The boundary is fed before generation so the tracker knows the window
-        // the tokens will be checked against.
-        let mut actions = tracker.feed_boundary(ChunkBoundary {
-            seek_time,
-            next_seek_time,
-        });
-
-        let chunk = engine.generate(ChunkRequest {
-            samples: &padded,
-            prompt: &prompt,
-            instrument_rows: &instrument_rows,
-            forbidden: &forbidden,
-        })?;
-        validate_tokens(&chunk.tokens)?;
-
-        // The engine returns the forced prompt inside the stream it generated,
-        // exactly as the reference's own `generate` does. Replaying it here as
-        // well would feed every boundary twice and desynchronise the tracker.
-        for token in &chunk.tokens {
-            if *token == neunote_tokenizer::EOS_ID {
-                break;
-            }
-            actions.extend(tracker.feed_token(*token));
-        }
-
-        assembler
-            .apply(&actions, chunk_index as u32)
-            .map_err(|error| format!("chunk {chunk_index}: {error}"))?;
-
-        on_event(Event::Progress(Progress {
-            chunks_done: chunk_index + 1,
-            chunks_total: total,
-            finalized_through: seek_time,
-        }));
-
-        // The run so far, not this chunk's piece of it: the view replaces what
-        // it holds, so a delta would leave only the last chunk's notes and a
-        // cancelled run would keep almost nothing. The final answer replaces
-        // this list, so a note a later chunk still trims is fine here.
-        let preview = assembler.finalize();
-        if !preview.is_empty() {
-            on_event(Event::Notes(preview));
+        on_event(Event::Progress(step.progress));
+        if let Some(notes) = step.notes {
+            on_event(Event::Notes(notes));
         }
     }
 
@@ -247,12 +345,7 @@ pub fn transcribe_streaming(
         return Ok(Outcome::Cancelled);
     }
 
-    let emitted = tracker.finish();
-    assembler
-        .apply(&emitted, (total - 1) as u32)
-        .map_err(|error| format!("final chunk: {error}"))?;
-
-    Ok(Outcome::Finished(assembler.finalize()))
+    Ok(Outcome::Finished(run.finish()?))
 }
 
 fn padded_to(samples: &[f32], len: usize) -> Vec<f32> {

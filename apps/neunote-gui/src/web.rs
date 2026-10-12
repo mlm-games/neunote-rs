@@ -1,6 +1,7 @@
 //! The web shell: a file input for audio and for the checkpoint, and a
 //! download for the MIDI.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use neunote_types::ModelSize;
@@ -14,16 +15,34 @@ pub(crate) fn shell() -> Shell {
     // the same cpal stream the desktop host opens.
     let transport = crate::audio::Device::open().map(|device| Rc::new(device) as Rc<dyn Transport>);
 
+    // What this tab has actually been given. A browser has no model cache to
+    // ask, so this is the only thing that can say a checkpoint is here, and
+    // without it the toolbar names a size the tab cannot transcribe with.
+    let stored: Rc<RefCell<Vec<ModelSize>>> = Rc::new(RefCell::new(Vec::new()));
+
+    let available = Rc::clone(&stored);
+    let by_resolve = Rc::clone(&stored);
+    let by_fetch = Rc::clone(&stored);
+
     Shell {
         transport,
         // A browser tab has no model cache: the checkpoint lives in OPFS, and
         // `resolve_weights` reads it back from there.
         cached_weights: Rc::new(|_size: ModelSize| None),
 
-        resolve_weights: Rc::new(crate::web_weights::resolve),
+        weights_available: Rc::new(move |size| available.borrow().contains(&size)),
 
-        fetch_weights: Rc::new(|size, accepted, progress, done| {
-            crate::web_weights::fetch(size, accepted, progress, done)
+        resolve_weights: Rc::new(move |size, done| {
+            crate::web_weights::resolve(size, note_held(Rc::clone(&by_resolve), size, done))
+        }),
+
+        fetch_weights: Rc::new(move |size, accepted, progress, done| {
+            crate::web_weights::fetch(
+                size,
+                accepted,
+                progress,
+                note_held(Rc::clone(&by_fetch), size, done),
+            )
         }),
 
         copy_midi: Rc::new(|_name, _bytes| {
@@ -116,6 +135,20 @@ fn input(accept: &str, picked: impl Fn(Option<File>) + 'static) {
 
     // The browser owns the callback until it fires; nothing else can drop it.
     picked.forget();
+}
+
+/// Remembers that this tab now holds the checkpoint, then passes the answer on.
+fn note_held(
+    stored: Rc<RefCell<Vec<ModelSize>>>,
+    size: ModelSize,
+    done: neunote_ui::WeightsDone,
+) -> neunote_ui::WeightsDone {
+    Rc::new(move |result| {
+        if result.is_ok() && !stored.borrow().contains(&size) {
+            stored.borrow_mut().push(size);
+        }
+        done(result);
+    })
 }
 
 fn read_file(file: File, done: impl FnOnce(Vec<u8>) + 'static) {
